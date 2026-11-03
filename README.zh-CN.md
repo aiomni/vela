@@ -42,6 +42,27 @@ Vela.app/Contents/Applications/VelaConnect.app
 
 也可从 **设置 → 远程 → 原生控制端…**（英文为 **Open Vela Connect…**） 打开。打包脚本会签署并验证主应用、控制端及其 WebRTC framework，不执行 Apple 公证，也不自动替换 `/Applications` 中已安装的版本。
 
+## 自动发布
+
+[Release 工作流](.github/workflows/release.yml) 仅在推送 `v*` 版本标签时自动构建并发布，更新 `main` 不会触发构建或生成产物。也可在 Actions 手动运行，必须填写已有版本标签；勾选 `publish` 才会发布该标签的 Release。
+
+```sh
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+工作流校验版本，运行 Swift、Python、Node 测试，在官方 [Xcode 27 arm64 环境](https://github.blog/changelog/2026-10-15-xcode-27-runner-image-generally-available/) 构建主应用和 Vela Connect，并将 ZIP、SHA-256 校验文件上传到 Actions 和 GitHub Releases。标签版本会写入两个应用；`v1.2.3-beta.1` 等标签生成预发布版本。不需要个人 GitHub Token，也不会创建、移动标签或覆盖已有 Release。
+
+未配置签名时生成明确标记为 `unsigned` 的测试包。需要固定证书签名时，在仓库 **Settings → Secrets and variables → Actions** 配置全部三个 Secrets：
+
+| Secret | 内容 |
+| --- | --- |
+| `MACOS_CERTIFICATE_P12_BASE64` | 含签名证书及私钥的 P12 文件，经 Base64 编码后的内容 |
+| `MACOS_CERTIFICATE_PASSWORD` | P12 导出密码 |
+| `MACOS_SIGNING_IDENTITY` | 证书 SHA-1 或签名身份名称 |
+
+证书仅导入临时钥匙串，打包后删除。签名配置不完整或签名失败时直接终止，不会回退到临时签名。持续使用同一证书有助于保留更新后的系统权限。目前 CI 构建仅支持 Apple Silicon，未执行 Apple 公证；不会自动上传本机证书或私钥。
+
 仅编译或检查未签名包结构：
 
 ```sh

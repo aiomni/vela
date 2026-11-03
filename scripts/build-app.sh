@@ -4,6 +4,21 @@ cd "${0:A:h:h}"
 configuration="${1:-release}"
 product="${2:-Vela}"
 offline_check="${3:-}"
+release_version="${VELA_VERSION:-}"
+release_build="${VELA_BUILD_NUMBER:-}"
+if [[ -n "$release_version" && ! "$release_version" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]]; then
+    print -u2 -- 'VELA_VERSION must contain three numeric components.'; exit 1
+fi
+if [[ -n "$release_build" && ! "$release_build" =~ '^[0-9]+$' ]]; then
+    print -u2 -- 'VELA_BUILD_NUMBER must be numeric.'; exit 1
+fi
+apply_bundle_version() {
+    [[ -z "$release_version" ]] || plutil -replace CFBundleShortVersionString -string "$release_version" "$1"
+    [[ -z "$release_build" ]] || plutil -replace CFBundleVersion -string "$release_build" "$1"
+    return 0
+}
+signing_keychain_options=()
+if [[ -n "${SIGNING_KEYCHAIN:-}" ]]; then signing_keychain_options=(--keychain "$SIGNING_KEYCHAIN"); fi
 if [[ -n "$offline_check" && "$offline_check" != "--offline-check" ]]; then
     print -u2 -- 'The third argument must be --offline-check'
     exit 1
@@ -30,7 +45,7 @@ if [[ -z "$offline_check" ]]; then
     signing_probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/vela-signing.XXXXXX")"
     trap 'rm -rf "$signing_probe_dir"' EXIT
     cp /usr/bin/true "$signing_probe_dir/probe"
-    codesign --force --options 0 --timestamp=none --sign "$signing_identity" "$signing_probe_dir/probe"
+    codesign --force --options 0 --timestamp=none "${signing_keychain_options[@]}" --sign "$signing_identity" "$signing_probe_dir/probe"
     codesign --verify --strict "$signing_probe_dir/probe"
     signing_team="$(codesign -dv "$signing_probe_dir/probe" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
     if [[ -z "$signing_team" || "$signing_team" == "not set" ]]; then
@@ -54,6 +69,7 @@ rm -rf "$app_dir"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 cp "$binary_dir/$product" "$app_dir/Contents/MacOS/$product"
 cp "$info_plist" "$app_dir/Contents/Info.plist"
+apply_bundle_version "$app_dir/Contents/Info.plist"
 cp -R "$binary_dir/Vela_VelaLocalization.bundle" "$app_dir/Contents/Resources/"
 if [[ "$product" == "Vela" ]]; then
     cp -R "$binary_dir/Vela_Vela.bundle" "$app_dir/Contents/Resources/"
@@ -72,6 +88,7 @@ if [[ "$product" == "Vela" ]]; then
         mkdir -p "$remote_app/Contents/MacOS" "$remote_app/Contents/Resources" "$remote_app/Contents/Frameworks"
         cp "$binary_dir/$remote_product" "$remote_app/Contents/MacOS/$remote_product"
         cp "Resources/${remote_product}Info.plist" "$remote_app/Contents/Info.plist"
+        apply_bundle_version "$remote_app/Contents/Info.plist"
         cp -R "$binary_dir/Vela_VelaLocalization.bundle" "$remote_app/Contents/Resources/"
         cp -R "Resources/$remote_product/en.lproj" "Resources/$remote_product/zh-Hans.lproj" "$remote_app/Contents/Resources/"
         cp -R "$rtc_framework" "$remote_app/Contents/Frameworks/"
@@ -82,9 +99,9 @@ if [[ "$product" == "Vela" ]]; then
         fi
         install_name_tool -add_rpath '@executable_path/../Frameworks' "$remote_app/Contents/MacOS/$remote_product"
         if [[ -z "$offline_check" ]]; then
-            codesign --force "${remote_signing_options[@]}" --sign "$signing_identity" "$remote_app/Contents/Frameworks/WebRTC.framework"
+            codesign --force "${remote_signing_options[@]}" "${signing_keychain_options[@]}" --sign "$signing_identity" "$remote_app/Contents/Frameworks/WebRTC.framework"
             if [[ "$remote_product" != "Vela" ]]; then
-                codesign --force "${remote_signing_options[@]}" --sign "$signing_identity" "$remote_app"
+                codesign --force "${remote_signing_options[@]}" "${signing_keychain_options[@]}" --sign "$signing_identity" "$remote_app"
             fi
         fi
         plutil -lint "$remote_app/Contents/Info.plist"
@@ -93,9 +110,9 @@ fi
 if [[ -z "$offline_check" ]]; then
     # Keep codesign's certificate-bound requirement; never use identifier-only DRs.
     if [[ "$product" == "Vela" ]]; then
-        codesign --force "${remote_signing_options[@]}" --sign "$signing_identity" "$app_dir"
+        codesign --force "${remote_signing_options[@]}" "${signing_keychain_options[@]}" --sign "$signing_identity" "$app_dir"
     else
-        codesign --force --options runtime "$timestamp_option" --sign "$signing_identity" "$app_dir"
+        codesign --force --options runtime "$timestamp_option" "${signing_keychain_options[@]}" --sign "$signing_identity" "$app_dir"
     fi
     codesign --verify --deep --strict "$app_dir"
 fi

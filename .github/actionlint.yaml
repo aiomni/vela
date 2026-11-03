@@ -1,0 +1,4 @@
+# Official hosted image; actionlint's built-in label list has not caught up yet.
+self-hosted-runner:
+  labels:
+    - xcode-27

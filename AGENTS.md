@@ -31,6 +31,8 @@ The signed artifact is `dist/Vela.app`; its embedded controller is `Contents/App
 
 Packaging reads `SIGNING_IDENTITY`, then `.signing-identity.local`. Do not print or commit local signing configuration, replace the certificate, fall back to ad-hoc signing, or weaken certificate-bound designated requirements. The script signs embedded frameworks and the controller before the main app. It does not notarize or replace the installed app automatically.
 
+The release workflow triggers automatically only on `v*` tags, never on main-branch pushes. Manual runs require an existing version tag. Keep metadata validation, checksum verification, least-privilege build/publish jobs, and commit-pinned actions. CI without signing secrets explicitly packages the unsigned offline bundle; partial secrets or signing failure must fail, never fall back. Signing keys live only in a temporary keychain outside uploaded artifacts. `VELA_VERSION` and `VELA_BUILD_NUMBER` apply to both bundled apps before signing; `SIGNING_KEYCHAIN` restricts certificate lookup without changing the user's keychain search list.
+
 ## Language and naming conventions
 
 - Use **English only in source code**, identifiers, comments, diagnostics, and base HTML/plist content. Keep `README.md` and this file in English. Maintain `README.zh-CN.md` alongside the English README.

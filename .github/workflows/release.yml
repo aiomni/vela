@@ -1,0 +1,104 @@
+name: Build and release Vela
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build (for example v1.2.3)
+        type: string
+        required: true
+        default: ''
+      publish:
+        description: Publish a GitHub Release for the existing tag
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vela-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      publish: ${{ steps.metadata.outputs.publish }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate version and release target
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag }}
+          PUBLISH_RELEASE: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
+        run: python3 scripts/release-metadata.py
+      - name: Check toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          node --version
+          python3 --version
+          test "$(uname -m)" = arm64
+      - name: Validate source and tests
+        run: |
+          python3 scripts/check-localization.py
+          python3 scripts/check-companion.py
+          python3 -m unittest discover -s Tests/Release -p 'test_*.py'
+          node --test Tests/WebClient/*.test.cjs
+          swift test
+      - name: Package application
+        env:
+          VELA_VERSION: ${{ steps.metadata.outputs.version }}
+          VELA_BUILD_NUMBER: ${{ steps.metadata.outputs.build }}
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: ./scripts/package-ci.sh
+      - name: Upload application and checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: vela-macos-arm64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .build/ci-release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  publish:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: vela-macos-arm64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release
+      - name: Verify and publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        working-directory: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum -c SHA256SUMS
+          args=(--verify-tag --title "Vela $RELEASE_TAG" --notes-file release-notes.md)
+          if [[ "$PRERELEASE" == true ]]; then args+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" ./*.zip SHA256SUMS "${args[@]}"

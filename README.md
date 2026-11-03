@@ -41,6 +41,27 @@ Vela.app/Contents/Applications/VelaConnect.app
 
 Open it from **Settings → Remote → Open Vela Connect…**. Packaging signs and verifies both apps and their WebRTC frameworks. It does not notarize or automatically install the build into `/Applications`.
 
+## Automated releases
+
+The [release workflow](.github/workflows/release.yml) runs only when a `v*` version tag is pushed. Updates to `main` do not start builds or generate artifacts. You can also run it manually from Actions using an existing version tag; select `publish` to publish that tag's Release.
+
+```sh
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+The workflow validates the version, runs Swift/Python/Node tests, builds both apps on the official [Xcode 27 arm64 image](https://github.blog/changelog/2026-10-15-xcode-27-runner-image-generally-available/), and uploads a ZIP with SHA-256 checksums to Actions and GitHub Releases. Tagged versions update both apps' bundle versions; prerelease tags such as `v1.2.3-beta.1` create prereleases. It requires no personal GitHub token and does not create or move version tags or overwrite existing releases.
+
+Without signing secrets it produces an explicitly named `unsigned` testing bundle. To sign with a fixed certificate, configure all three repository Actions secrets in **Settings → Secrets and variables → Actions**:
+
+| Secret | Value |
+| --- | --- |
+| `MACOS_CERTIFICATE_P12_BASE64` | Base64-encoded P12 containing the signing certificate and private key |
+| `MACOS_CERTIFICATE_PASSWORD` | P12 export password |
+| `MACOS_SIGNING_IDENTITY` | Certificate SHA-1 or signing identity name |
+
+The certificate is imported into a temporary keychain and deleted after packaging. Partial signing configuration or signing failure stops the build; it never falls back to ad-hoc signing. Keep the same certificate to preserve permissions across updates. CI builds currently target Apple Silicon only and are not notarized. No local certificate or private key is uploaded automatically.
+
 For compilation or unsigned bundle structure checks:
 
 ```sh
