@@ -1,0 +1,40 @@
+历史阶段记录：最终用户修订范围及全部验收结论见 remote-final-acceptance.txt（2026-11-03）。
+
+AwakePet 虚拟显示器与隐私远控目标（2026-11-02）
+
+用户授权：创建清晰 goal 并实现上述功能。目标在当前聊天保持 active。
+
+验收项
+1. 网页创建/选择/关闭虚拟显示器，设置像素宽高、HiDPI，展示真实采集/接收尺寸。
+2. 普通锁屏保留远控连接或可自动恢复，准确报告状态；认证通过后恢复操作。
+3. 本机受保护时远程继续原桌面；不能以黑屏遮罩或删除锁屏判断作为完成依据。
+4. 物理屏黑屏/待机兼容性、进入前连通性确认、显示布局恢复、紧急退出、异常恢复。
+5. 现有认证和固定签名保持；测试、实际验证、文档、签名安装交付。
+
+实现次序
+A. 原型验证：创建虚拟屏；确认当前系统支持的会话分离接口；验证分离会话的采集/输入。
+B. 虚拟屏管理模块与生命周期、接口和网页控件。
+C. 锁定/脱离控制台/可操作状态分离，保留会话和反馈，再接入已验证的隐私会话。
+D. 物理屏状态和回滚，输入保护，断线/睡眠/退出/异常恢复。
+E. 集成验证和签名安装。
+
+调研依据
+https://raw.githubusercontent.com/chromium/chromium/main/remoting/host/curtain_mode_mac.cc
+Chromium 当前通过 SACSwitchToLoginWindow 把用户会话切离本地控制台，监测重新附着。
+https://raw.githubusercontent.com/chromium/chromium/main/ui/display/mac/test/virtual_display_util_mac.mm
+CGVirtualDisplay 是未公开接口，需要运行时能力检查和当前系统实测。
+https://help.edovia.com/en/screens-5/features/curtain-mode
+系统远程管理路径也可实现 Curtain Mode，但不等同普通 VNC 桥接自动拥有该能力。
+
+当前结果（2026-11-03）
+A–C 已完成实现和分项验证，D 已接入生命周期，E 构建签名通过，已安装并启动。
+实际采用 SACSwitchToLoginWindow + 当前用户会话输入 + ScreenCaptureKit 重绑定。
+普通锁屏保留媒体连接，恢复后台操作前单独验证当前 Mac 账户；不替用户解锁本地控制台。
+虚拟屏创建、HiDPI、横竖屏与关闭恢复已通过真实浏览器验证。
+显示器休眠请求成功后后台采集继续；用户未观察实体黑屏，明确安排稍后验证。
+目标保持 active，最终网页真实账户认证、锁屏后点击输入和实体屏表现仍需现场验收。
+完整证据和限制见 remote-private-session-acceptance.txt。
+
+2026-11-03 用户修订：不允许切到登录界面；关闭所有物理屏，仅保留虚拟屏，本机键鼠可唤醒。
+后续实现与验收以 remote-physical-blackout-acceptance.txt 为准。旧系统会话分离路径停止提供。
+系统锁屏后的网页账户恢复不再沿用旧路径，当前仅本机解锁恢复，不应冒充这一旧验收项已完成。

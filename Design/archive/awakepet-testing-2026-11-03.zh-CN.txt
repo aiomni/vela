@@ -1,0 +1,87 @@
+LockLab · 自动锁屏实验
+
+构建与运行
+  ./scripts/build-app.sh release LockLab
+  open dist/LockLab.app
+
+参考 superuse DEV.md：Swift Package Manager、原生 AppKit、主线程界面、
+LockLab 目标无第三方依赖，打包要求固定证书签名。最低 macOS 26。
+AwakePet 的远控目标另含 WebRTC / SwiftNIO，验证记录见 Design/remote-control-acceptance.txt。
+签名配置：SIGNING_IDENTITY 环境变量或 .signing-identity.local 文件。
+App 使用独立的 bundle ID：app.aiomni.locklab。
+
+测试步骤
+1. 暂停视频和音乐、退出游戏、结束通话和屏幕共享，避免它们干扰实验。
+   点击“查看电源断言”，确认其他进程是否持有 PreventUserIdleDisplaySleep、
+   NoDisplaySleepAssertion 或 UserIsActive。基线模式只保证 LockLab 没有请求。
+2. 选择“基线”，时长选 12 分钟，开始后不要操作键鼠。
+   用另一台设备计时：何时出现屏保、何时显示锁屏；12 分钟后唤醒，
+   记录是否要求密码。输入操作会重置空闲计时。
+3. 分别选择“保持系统唤醒”“保持显示器唤醒”“每 30 秒声明用户活动”，
+   按相同步骤测试，保持电源状态、其他运行应用和测试时长一致。
+4. 对有效模式单独再测一轮：运行超过 5 分钟，停止后完全不操作，
+   观察原有锁屏行为是否恢复。恢复可能立即发生，也可能重新计时。
+5. 对有效模式单独测试手动锁屏：运行时按 Control + Command + Q。
+   检查手动锁屏仍能正常要求解锁；解锁后点击“停止并释放”。
+6. “30 秒（调试）”仅用于快速检查启动、倒计时、停止和自动释放，
+   不能用来判断 5 分钟策略是否被延迟。
+
+记录模板（建议每种模式至少重复两次）
+模式 | 电源状态 | 其他应用断言 | 屏保出现时间 | 是否要求密码 | 停止后恢复情况
+
+观测与限制
+- 显示器休眠、系统休眠、启动屏保和密码锁定不是同一个事件。
+- 界面的“HID 空闲”读取 IOHIDSystem.HIDIdleTime（纳秒转换为秒）；
+  日志另记录 Quartz 任意输入事件空闲（kCGAnyInputEventType），用于对照。
+  两者均不是管理策略的内部计时，声明活动也不一定使它们归零。
+  HIDIdleTime 是运行时观测属性，缺失时显示“不可用”，不伪造零值。
+- 日志中的休眠事件来自 NSWorkspace，不是密码锁定通知。
+  是否锁定、是否要求密码以实际观察为准。
+- 声明用户活动模式使用 IOPMAssertionDeclareUserActivity，每 30 秒刷新；
+  不模拟键盘鼠标。是否影响受管理的屏保，取决于本机实测。
+- 程序不修改系统偏好或 MDM 描述文件，不注册开机启动。
+  停止、计时结束、正常退出时释放自身断言；进程退出后系统也会清理断言。
+- 系统睡眠时程序计时器不会运行；到期清理可能在唤醒后才执行。
+- 程序启动时不会申请保持唤醒；关闭最后一个窗口会退出。
+- 日志只保存在内存，可选择复制；不会自动上传或保存。
+
+快速检查
+  swift build -c release
+  .build/release/LockLab --smoke-test
+  .build/release/LockLab --ui-smoke-test
+  .build/release/LockLab --idle-sample
+  codesign --verify --deep --strict dist/LockLab.app
+
+--smoke-test 会短暂调用真实的四种电源接口，验证创建／刷新成功，
+随后释放，并读取系统断言属性确认类型与启用状态、验证释放后不再存在。
+--ui-smoke-test 检查原生控件的启动／停止状态和真实 30 秒计时自动释放。
+这些都不是无人操作 12 分钟的锁屏行为测试。
+
+官方接口说明
+https://developer.apple.com/documentation/iokit/kiopmassertiontypepreventuseridledisplaysleep
+https://developer.apple.com/documentation/iokit/1557127-iopmassertiondeclareuseractivity
+https://support.apple.com/en-bw/guide/mac-help/mchl8e8b6a34/mac
+
+远控虚拟屏/隐私会话（2026-11-03）
+  swift test
+  node --test Tests/WebClient/client-core.test.cjs
+  ./scripts/build-app.sh release AwakePet
+  codesign --verify --deep --strict dist/AwakePet.app
+浏览器模拟测试：Tests/WebClient/private-session.browser.js 与 touch-gestures.browser.js，
+只使用 mock-session fixture，不向真实系统注入输入。
+实际分项测试、结果及待现场验收步骤见 Design/remote-private-session-acceptance.txt。
+--remote-session-probe 与 --remote-web-probe 仅供明确安排的隔离开发验证；
+带 --probe-detach/--probe-lock-first 的原型会切换系统会话，结束后必须本机手动登录。
+正常启动不运行这些探测，不应在无人准备恢复时执行会话切换原型。
+
+物理屏新模式（2026-11-03）
+  --physical-blackout-probe DIR：真实停用物理屏，只保留测试虚拟屏，5秒自动恢复。
+  --capabilities-only：只报告接口与输入监控权限，不更改显示器。
+  --test-remote-input：向独立测试窗口注入标记事件，验证远程输入不唤醒物理屏。
+  --crash-after-blackout：仅供隔离测试程序异常退出验证，不对正常应用使用。
+  --remote-display-watchdog DIR：正常黑屏流程内部启动的临时恢复进程，不用于手动运行。
+最终证据及新需求边界见 Design/remote-physical-blackout-acceptance.txt；旧会话切换路径已停用。
+
+远控最终验证汇总（2026-11-03）
+以 Design/remote-final-acceptance.txt 为当前结论；上述旧隐私会话原型仅作历史开发记录。
+最新 Swift 31 项通过（.build/display-sleep-tests.log），最终安装版的虚拟屏锁屏/解锁返回已由用户现场确认。

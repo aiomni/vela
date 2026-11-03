@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "Vela";
+"NSLocalNetworkUsageDescription" = "管理局域网远程桌面连接。";
+"NSScreenCaptureUsageDescription" = "将你选择的显示器通过加密连接传输到已认证的远程控制端。";

@@ -1,0 +1,14 @@
+Vela
+Keeping watch. Keeping you connected.
+
+Current documentation:
+- README.md: English usage, requirements, building, remote access, and limitations.
+- README.zh-CN.md: Simplified Chinese version.
+- AGENTS.md: architecture, localization, compatibility, and development workflow.
+- TESTING.txt: validation commands and boundaries.
+
+English is the default. Select Language in Vela Settings, Vela Connect, or the web client.
+Build with ./scripts/build-app.sh release Vela; the output is dist/Vela.app.
+
+Historical testing instructions are preserved under Design/archive/.
+Historical acceptance evidence remains in Design/; it is not a current user guide.

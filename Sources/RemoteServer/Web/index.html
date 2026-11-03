@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#10151c"><title>Vela · Remote Desktop</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<svg class="icon-library" aria-hidden="true"><defs>
+<symbol id="i-screen" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></symbol>
+<symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M7 15h10"/></symbol>
+<symbol id="i-quality" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="16" cy="17" r="3"/></symbol>
+<symbol id="i-full" viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></symbol>
+<symbol id="i-mouse" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="6"/><path d="M12 3v6M6 10h12"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 4v3"/></symbol>
+<symbol id="i-link" viewBox="0 0 24 24"><path d="m9 15 6-6m-7 3-2 2a4 4 0 0 0 6 6l3-3m-6-10 3-3a4 4 0 0 1 6 6l-2 2"/></symbol>
+<symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v9m-6-6a9 9 0 1 0 12 0"/></symbol>
+<symbol id="i-chevron" viewBox="0 0 24 24"><path d="m7 14 5-5 5 5"/></symbol>
+</defs></svg>
+<main>
+<header id="landing-header"><a class="brand" href="/" aria-label="Vela home"><span class="mark">◒</span><strong>Vela</strong><span class="brand-label">REMOTE DESKTOP</span></a><select data-language aria-label="Language"><option value="en">English</option><option value="zh-Hans">Chinese (Simplified)</option></select><span class="secure-label">Encrypted peer-to-peer connection</span></header>
+<section id="login" class="login">
+  <div class="login-art"><svg><use href="#i-screen"/></svg><span class="orbit"></span><span class="orbit second"></span></div>
+  <span class="eyebrow">Keeping watch. Keeping you connected.</span><h1>Your desktop,<br>right at hand.</h1>
+  <p id="authentication-hint">Reading host authentication method…</p>
+  <form id="login-form"><label id="password-label" for="password">Access password</label><input id="password" type="password" autocomplete="current-password" required maxlength="1024" placeholder="Enter connection password" autofocus><button id="login-button" class="primary" type="submit">Connect to computer <span>↗</span></button></form>
+  <p class="login-note">Keep Vela running on the host Mac.<br>Grant Vela Screen Recording and Accessibility access only on the host Mac.</p>
+</section>
+<section id="desktop" hidden aria-label="Remote console">
+  <header id="toolbar" class="toolbar">
+    <div class="session-brand"><span class="mark">◒</span><div><strong>Vela</strong><span id="connection" role="status">Not connected</span></div></div>
+    <nav class="tools" aria-label="Remote toolbar">
+      <button data-panel="display-panel" aria-controls="display-panel" aria-expanded="false"><svg><use href="#i-screen"/></svg><span>Display</span></button>
+      <button data-panel="quality-panel" aria-controls="quality-panel" aria-expanded="false"><svg><use href="#i-quality"/></svg><span>Quality</span></button>
+      <button data-panel="keyboard-panel" aria-controls="keyboard-panel" aria-expanded="false"><svg><use href="#i-keyboard"/></svg><span>Keyboard</span></button>
+      <button data-panel="mouse-panel" aria-controls="mouse-panel" aria-expanded="false"><svg><use href="#i-mouse"/></svg><span>Mouse</span></button>
+      <button data-panel="privacy-panel" aria-controls="privacy-panel" aria-expanded="false"><svg><use href="#i-screen"/></svg><span>Physical displays</span></button>
+      <button id="fullscreen" title="Enter full screen"><svg><use href="#i-full"/></svg><span>Full screen</span></button>
+    </nav>
+    <div class="session-actions"><select data-language aria-label="Language"><option value="en">English</option><option value="zh-Hans">Chinese (Simplified)</option></select><button id="reconnect" title="Reconnect" aria-label="Reconnect"><svg><use href="#i-link"/></svg></button><button id="disconnect" class="danger" title="Disconnect" aria-label="Disconnect"><svg><use href="#i-power"/></svg></button><button id="collapse-toolbar" title="Hide toolbar" aria-label="Hide toolbar"><svg><use href="#i-chevron"/></svg></button></div>
+  </header>
+  <button id="show-toolbar" hidden aria-label="Expand remote toolbar">◒ Vela <span>Show toolbar ▾</span></button>
+  <div id="workspace">
+    <div id="screen" tabindex="0" aria-label="Remote desktop. Click the screen to use the keyboard; Ctrl+Alt+Shift releases input.">
+      <div id="surface"><video id="video" autoplay playsinline muted></video><span id="remote-cursor" hidden></span></div>
+      <div id="screen-overlay"><span class="loader"></span><strong id="overlay-title">Establishing a live connection</strong><span id="overlay-detail">Preparing encrypted video and control channels…</span></div>
+    </div>
+    <div id="input-hint">Click the screen to control <span>Ctrl + Alt + Shift releases input</span></div>
+    <aside id="display-panel" class="panel" hidden aria-label="Display settings"><div class="panel-heading"><h2>Display and scaling</h2><button data-close-panel aria-label="Close display settings">×</button></div><label for="display">Host display</label><select id="display"></select><label for="zoom">Video size</label><select id="zoom"><option value="fit">Fit window</option><option value="1">100% · Pixel for pixel</option><option value="1.5">150% · Zoom in</option><option value="2">200% · Zoom in</option></select><p>Pixel-for-pixel view avoids scaling blur. Scroll to view a desktop larger than the window. Zooming does not add detail.</p><button id="center-view" class="wide">Center video</button>
+      <section id="virtual-controls" class="virtual-controls" aria-label="Virtual display">
+        <h3>Virtual display</h3><p>Add a remote display to this Mac. Move windows into it; it shares keyboard and mouse focus with the local session.</p>
+        <label for="virtual-preset">Pixel resolution</label><select id="virtual-preset"><option value="1920,1080">1920 × 1080 · Landscape</option><option value="2560,1440">2560 × 1440 · Landscape</option><option value="3840,2160" selected>3840 × 2160 · Landscape</option><option value="2160,3840">2160 × 3840 · Portrait</option><option value="custom">Custom</option></select>
+        <div class="resolution-inputs"><label>Width<input id="virtual-width" type="number" min="640" max="3840" step="2" value="3840" inputmode="numeric"></label><span>×</span><label>Height<input id="virtual-height" type="number" min="480" max="3840" step="2" value="2160" inputmode="numeric"></label></div>
+        <label class="check-label"><input id="virtual-hidpi" type="checkbox" checked>HiDPI · Double interface size, retain detail</label>
+        <p id="virtual-summary">Desktop 1920 × 1080, output 3840 × 2160 pixels.</p>
+        <button id="create-virtual" class="wide">Create and switch</button><button id="remove-virtual" class="wide" hidden>Close virtual display and return to another</button>
+        <p id="virtual-status">Checking virtual display support…</p><p>The virtual display closes when the remote session ends. macOS moves windows to other displays. Check the Quality panel for actual received resolution.</p>
+      </section></aside>
+    <aside id="quality-panel" class="panel" hidden aria-label="Quality settings"><div class="panel-heading"><h2>Quality and connection</h2><button data-close-panel aria-label="Close quality settings">×</button></div><label for="quality">Streaming quality</label><select id="quality"><option value="native" selected>Detail · Up to 4K / 30 FPS</option><option value="clear">Balanced · Up to 1440p / 30 FPS</option><option value="smooth">Smooth · Up to 1080p / 60 FPS</option></select><p id="quality-description">Prioritize text detail. Actual dimensions depend on the display, browser decoding, and network.</p><dl class="metrics"><div><dt>Display pixels</dt><dd id="source-size">—</dd></div><div><dt>Host capture</dt><dd id="capture-size">—</dd></div><div><dt>Received video</dt><dd id="received-size">—</dd></div><div><dt>Frame rate</dt><dd id="fps-value">—</dd></div><div><dt>Received bitrate</dt><dd id="bitrate-value">—</dd></div><div><dt>Network round trip</dt><dd id="rtt-value">—</dd></div></dl><p id="quality-warning" class="notice" hidden></p></aside>
+    <aside id="privacy-panel" class="panel" hidden aria-label="Physical display control"><div class="panel-heading"><h2>Use virtual display only</h2><button data-close-panel aria-label="Close physical display settings">×</button></div>
+      <p id="privacy-status" role="status">Reading display status…</p>
+      <p>Create and select a virtual display in Display, confirm the video works, then turn off the Mac's built-in and external physical displays. The current user session stays active.</p>
+      <form id="privacy-form"><button id="begin-privacy" class="wide" type="submit">Turn off physical displays, keep virtual display</button></form>
+      <button id="restore-physical" class="wide" hidden>Restore all physical displays</button>
+      <p>Local keyboard, mouse, or trackpad input restores physical displays. Remote input continues on the virtual display. Disconnects, exits, and failures automatically attempt to restore the original display layout.</p>
+      <p>This does not lock the Mac. When macOS actually locks, remote control shows the system lock screen for password entry.</p>
+    </aside>
+    <aside id="mouse-panel" class="panel" hidden aria-label="Mouse settings"><div class="panel-heading"><h2>Mouse and touch</h2><button data-close-panel aria-label="Close mouse settings">×</button></div><label for="touch-mode">Touch input mode</label><select id="touch-mode"><option value="trackpad">Trackpad · Slide to move the pointer</option><option value="direct">Direct touch · Tap the matching position</option></select><p id="touch-help">Slide one finger to move the pointer, tap to click, long-press to right-click, and scroll with two fingers. Enable Drag to drag items.</p><div class="mouse-buttons"><button id="left-click" data-remote-input>Left click</button><button id="right-click" data-remote-input>Right click</button><button id="drag-toggle" data-remote-input aria-pressed="false">Drag</button></div><p>Swipe left with four fingers for the next desktop, right for the previous desktop, or up for Mission Control.</p><div class="mouse-buttons" role="group" aria-label="Desktop switching"><button data-desktop-action="previous" data-remote-input>Previous desktop</button><button data-desktop-action="next" data-remote-input>Next desktop</button><button data-desktop-action="overview" data-remote-input>Mission Control</button></div><p>Requires the Mac's Control + arrow key shortcuts. Use these buttons if your touch device intercepts the gestures.</p><button id="view-only" class="wide" aria-pressed="false">Switch to view only</button><button id="release" class="wide">Release all keys</button></aside>
+    <aside id="keyboard-panel" class="panel keyboard-panel" hidden aria-label="Remote keyboard"><div class="panel-heading"><h2>Remote keyboard <span>Keys are sent to the Mac</span></h2><button data-close-panel aria-label="Close keyboard">×</button></div><div class="shortcut-row" aria-label="Common shortcuts"><button data-shortcut="MetaLeft,Space" data-remote-input>⌘ Space Search</button><button data-shortcut="MetaLeft,Tab" data-remote-input>⌘ Tab Switch</button><button data-shortcut="MetaLeft,KeyA" data-remote-input>Select all</button><button data-shortcut="MetaLeft,KeyC" data-remote-input>Copy</button><button data-shortcut="MetaLeft,KeyV" data-remote-input>Paste</button><button data-shortcut="MetaLeft,KeyZ" data-remote-input>Undo</button></div><div id="virtual-keyboard" aria-label="On-screen keyboard"></div><form id="text-form"><textarea id="text" rows="2" maxlength="4096" placeholder="Enter text here for IME input or multiple lines, then send" aria-label="Text to send to the remote computer"></textarea><input id="lock-text" type="password" maxlength="1024" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Click the system password field first, then enter text here to send" aria-label="Text for the system password field" data-remote-input hidden><button id="text-submit" type="submit" data-remote-input>Send text ↗</button></form><p id="lock-text-note" hidden>Input is masked and cleared after sending or closing the keyboard. Select the macOS password field in the video first, send, then press Enter on the remote keyboard.</p><p class="keyboard-note">Tap ⌘ / ⌥ / ⌃ / ⇧ to combine modifiers. Copy and paste use the host Mac's clipboard.</p></aside>
+  </div>
+  <footer id="statusbar"><button id="control-state" title="Click the screen to control">Connecting…</button><span id="stats">Waiting for video</span><button data-panel="keyboard-panel" aria-controls="keyboard-panel" aria-expanded="false" class="mobile-keyboard"><svg><use href="#i-keyboard"/></svg>Keyboard</button><button id="emergency-release" title="Release all keys">Release input</button></footer>
+</section>
+<p id="message" role="status" aria-live="polite" hidden></p>
+</main>
+<script src="/i18n.js" defer></script>
+<script src="/client-core.js" defer></script><script src="/app.js" defer></script>
+</body></html>

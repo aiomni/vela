@@ -1,0 +1,31 @@
+固定证书签名修复（2026-10-31）
+
+原因
+AwakePet 打包曾跳过已有 .signing-identity.local，自动采用 ad-hoc 签名，
+导致主程序及后台的指定要求随构建 cdhash 改变，不能提供稳定的跨版本权限身份。
+
+改动
+AwakePet / LockLab 均优先使用 SIGNING_IDENTITY，其次读取现有本机配置。
+现有配置与参考项目使用同一固定本机证书；没有修改证书、私钥或钥匙串信任。
+缺失配置、显式临时签名和无法使用的身份均使打包失败；离线结构检查仍无需证书。
+预检使用真实签名和验证，避免只靠 find-identity -v 漏掉可签名的本机证书。
+主程序、后台、查看器及两份 WebRTC 使用同一证书；保留自动生成的证书绑定要求。
+无 Team ID 的本机证书不为远控子进程启用 hardened runtime，以保证 WebRTC 可加载。
+有 Team ID 的证书继续启用 hardened runtime；未进行公证。
+
+本次验证
+- zsh -n scripts/build-app.sh 通过。
+- release 完整包生成成功，codesign --verify --deep --strict 通过。
+- 临时复制包中分别修改 5 个签名组件的版本字段并重新签名：CDHash 均改变，
+  designated requirement 均保持一致，且用原要求验证新签名和完整包验证均通过。
+- 缺失配置、SIGNING_IDENTITY=-、不存在的证书均在打包前失败。
+- 已安装到原 /Applications/AwakePet.app 路径，dist/AwakePet.app 同步更新。
+- 主程序与后台启动成功；实际 socket 监听所有 IPv4 接口的 8443 端口。
+- 两个当前本机地址的首页、脚本和认证接口均通过校验证书的 HTTPS 请求返回 200。
+- 比对确认认证设置、密码验证值、监听配置和 TLS 证书保留。
+
+验证边界
+本次为打包脚本修复，未修改应用功能代码；沿用前次 19 项功能测试结果，未重跑。
+升级后录屏与辅助功能检测仍为未授权，需要在系统设置中授权当前固定签名版本。
+已证明签名身份跨内容变化稳定；尚未完成用户重新授权后再次真实升级的 TCC 继承实测。
+后续构建须保留同一证书、bundle ID 与安装路径；不要重建同名证书代替原证书。

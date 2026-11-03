@@ -1,0 +1,34 @@
+// Load on the mock server, then call runLocalizationChecks().
+window.runLocalizationChecks=async()=>{
+ const $=id=>document.getElementById(id),results=[];
+ const assert=(value,label)=>{if(!value)throw Error(label);results.push(label);};
+ await VelaI18n.ready;
+ assert(document.documentElement.lang==='en','fresh browser defaults to English');
+ assert($('login-button').childNodes[0].textContent.trim()==='Connect to computer','English login');
+ assert(!/\p{Script=Han}/u.test(document.body.innerText),'English UI has no untranslated Chinese');
+ $('password').value='Connect';
+ await VelaI18n.setLanguage('zh-Hans');
+ assert(document.documentElement.lang==='zh-Hans','Chinese document language');
+ assert($('login-button').childNodes[0].textContent.trim()===VelaI18n.t('Connect to computer'),'Chinese login');
+ assert(/\p{Script=Han}/u.test($('login-button').textContent),'Chinese translation is visible');
+ assert($('password').value==='Connect','language switch preserves password input without translating it');
+ assert([...document.querySelectorAll('[data-language]')].every(picker=>picker.value==='zh-Hans'),'both pickers stay synchronized');
+ assert($('password').placeholder===VelaI18n.t('Enter connection password'),'placeholder is translated');
+ await VelaI18n.setLanguage('en');
+ assert($('login-button').childNodes[0].textContent.trim()==='Connect to computer','return to English');
+ $('password').value='fixture';$('login-form').requestSubmit();
+ await new Promise(resolve=>setTimeout(resolve,800));
+ assert(!$('desktop').hidden&&__peer.connectionState==='connected','fixture connects');
+ const offers=__requests.filter(path=>path==='offer').length,peer=__peer;
+ $('text').value='Connect';$('lock-text').value='unsent-fixture-only';
+ await VelaI18n.setLanguage('zh-Hans');
+ assert($('control-state').textContent===VelaI18n.t('Control ready · Keyboard and mouse available'),'live state translated');
+ assert($('text').value==='Connect','user-entered remote text is preserved');
+ assert($('lock-text').value==='unsent-fixture-only','language updates do not clear an unsent masked input');$('lock-text').value='';
+ assert(__peer===peer&&__requests.filter(path=>path==='offer').length===offers,'language switch preserves peer and session');
+ assert(localStorage.getItem('vela.language')==='zh-Hans','browser preference persists');
+ await VelaI18n.setLanguage('en');
+ assert(!/\p{Script=Han}/u.test(document.body.innerText),'live session returns entirely to English');
+ assert($('control-state').textContent==='Control ready · Keyboard and mouse available','live English state restored');
+ return {passed:results.length,results};
+};

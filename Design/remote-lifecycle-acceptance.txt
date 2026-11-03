@@ -1,0 +1,34 @@
+远控与 AwakePet 生命周期统一（2026-10-31）
+
+实现
+- 远控服务、录屏和输入均在 AwakePet 主进程中运行，权限申请直接由主程序调用。
+- 移除 AwakePetRemoteHost 可执行目标、独立 App、后台菜单栏和远控登录项注册代码。
+- AwakePet 启动时创建 RemoteHostRuntime；仅在保存的远控开关开启时监听。
+- AwakePet 正常退出及 SIGTERM/SIGINT 路径等待远控关闭：先取消并等待周期任务，
+  再释放输入、采集、会话、网络监听和电源断言，最后释放唯一实例锁。
+- 保留锁屏/休眠/切换用户的暂停行为。远控设置不因退出被清除，重开可恢复。
+- 主程序打包包含 RemoteServer 网页资源和 WebRTC；保留原生查看器。
+- 主程序保留既有 bundle ID、安装路径和固定证书绑定要求。
+- 权限提示统一指向 AwakePet；无需单独授权 Remote Host。
+- 关闭设置窗口或隐藏宠物仅隐藏 UI；通过“退出 AwakePet”关闭 App 及远控。
+
+自动验证
+- swift test：20 项全部通过，含真实 TLS、认证撤销、WebRTC 编解码和新生命周期测试。
+- 新测试确认服务 PID 为当前进程；重复实例不能抢占锁或覆盖状态；停止后端口关闭，
+  周期任务不重新开放端口；配置字节保持不变；重开撤销旧登录令牌；停止可重复调用；
+  启动后立即停止不遗留运行锁或监听。
+- release 完整打包和 codesign --verify --deep --strict 通过，无编译警告。
+- 候选包无 Contents/Library/LoginItems，主程序 designated requirement 与已安装版一致。
+
+现场安装及启动/退出实测
+- 完整包已安装至 /Applications/AwakePet.app，并同步至 dist/AwakePet.app。
+- 旧版远控登录项已正常注销，launchctl 查询确认服务不存在；旧后台进程已退出。
+- lsof 确认 AwakePet 主进程直接持有 *:8443 监听，状态 PID 与主程序 PID 一致。
+- 主程序启动后自动恢复开启的远控，两处实际网络地址的首页、脚本、认证接口均通过
+  本地证书校验的 HTTPS 请求返回 200，配置、密码验证值与 TLS 证书保留。
+- 从菜单选择“退出 AwakePet”：主进程退出、状态为 stopped、TCP 连接被拒绝，
+  8443 无监听者；已保存的远控开关仍为开启。
+- 再次启动 AwakePet：由新的主进程 PID 自动恢复监听，两地址 HTTPS 认证接口正常。
+- 重启前后屏幕录制及输入控制权限均检测为已授权，无需重新授权独立后台。
+- 候选包 --watch-policy-test 的策略、CPU 活动、唤醒断言与临时合盖监视检查全部通过。
+- 本次未重新实测真实远端画面/键鼠操作；WebRTC 编解码与控制消息由自动测试覆盖。

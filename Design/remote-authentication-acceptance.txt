@@ -1,0 +1,72 @@
+Publication note: device addresses and personal paths in this historical record were replaced with documentation examples or project-relative paths.
+
+AwakePet 认证方式选择 — 2026-10-31
+
+安装版补充验证（17:00 后）
+- 重新运行 swift test，16 项通过；Release 三个目标重新构建及嵌套签名验证通过。
+- 使用生产 MacOSAccountDirectory / RemoteAuthenticator 只读识别实际本机账户，
+  确认 UID 与当前进程一致、authenticationAllowed 通过；未提交系统密码。
+- 已更新 /Applications/AwakePet.app，保留原访问密码及认证模式；重启并刷新后台登录项。
+- 实际设置窗口确认“自定义密码 / macOS 系统账户”两个选项可见，保持用户原自定义模式。
+- 安装后的局域网 HTTPS 首页、app.js、api/authentication 返回 200，认证元数据为 customPassword。
+- 当前仍为 ad-hoc 签名；二进制更新后系统屏幕/辅助功能权限须由用户按界面状态确认。
+- 下方“候选版”验证边界记录描述首次候选交付；本节补充覆盖安装和只读账户/UI 检查，
+  真实系统密码成功登录、系统锁定/过期策略实测仍未进行。
+
+交付
+- 设置 → 远程控制 → 认证方式：自定义密码 / macOS 系统账户。
+- 自定义模式保留 PBKDF2 密码及旧配置兼容；只有缺失 authenticationMode 的旧配置迁移为自定义。
+  未知/空模式、缺失系统账户、无效身份、损坏配置均失败关闭，不静默降级。
+- 系统模式使用 Apple OpenDirectory 的 ODRecord.verifyPassword；不读取系统密码数据库。
+  仅解析本机目录节点、当前非 root 且 real/effective UID 相同的后台所属账户。
+  绑定 UID + GeneratedUID(UUID) + 短账户名；用户不能从客户端指定任意账户。
+  配置保存公开账户标识，不保存系统密码；不把密码放在 URL、日志或返回值中。
+- 启动、周期性运行及认证前后检查账户认证策略，身份变化/策略拒绝时撤销会话并关闭监听。
+  系统模式单次并行认证，所有源 IP 共享账户失败限流，系统锁定/过期策略仍生效。
+- 切换方式会断开连接、释放输入并撤销会话；异步认证期间改配置或停止再恢复服务不能签发旧请求 token。
+- 选择认证方式不自动开启远控；切回未配置密码的自定义模式时关闭远控。
+- 网页显示实际认证方式及绑定账户；原生控制端有认证说明，两端登录绑定方式/配置版本。
+  密码输入在提交/失败后清空；系统模式网页关闭密码自动完成；密码不写入应用持久存储。
+- 密码只在当次认证请求的内存中处理，Swift/Foundation 不提供此实现中所有临时副本的可靠清零保证。
+
+实现依据
+- 本机 SDK OpenDirectory/ODRecord.h：verifyPassword 会执行账户及密码认证策略。
+- https://developer.apple.com/documentation/opendirectory/odrecord/verifypassword(_:)
+- https://developer.apple.com/documentation/opendirectory/odrecord/authenticationallowed()
+
+验证
+- swift test：RemoteCore 10 项 + RemoteServer 6 项，共 16 项；0 failures。
+- 模拟系统账户：正确/错误密码、空值、UID/UUID/名称变化、账户不可认证、错误脱敏。
+- 配置：旧数据迁移、未知/null 模式拒绝、持久化后重新读取、选择模式不自动开启、保留旧密码。
+- 真实回环 HTTPS + 模拟账户后端：认证方式信息、错误认证、跨源 IP 限流、正确认证、
+  双向模式切换撤销旧 token、账户失效关闭 TCP listener、恢复后旧 token 无效、后台对象重建。
+- 登录进行中关闭配置，以及关闭后恢复完全相同配置，均不能签发过期认证结果的 token。
+- 原 HTTPS 自定义密码 / Origin / 改密 / 关闭监听回归；真实 WebRTC peer 视频和控制通道回归。
+- Release 主程序、后台、原生控制端构建打包，嵌套 framework/helper 及 codesign --verify --deep --strict。
+- 原 --watch-policy-test；网页 node --check；脚本 zsh -n。
+
+边界
+- 系统认证后端仅以模拟验证。未提交任何真实系统账户密码，未验证真实账户正确/错误登录、
+  系统策略锁定/过期效果、第二台设备连接或认证 UI 的实际操作流程。
+- 未重新运行会与当前应用快捷键/窗口交互的完整 --self-test；本次执行原保活策略回归与上述16项测试。
+- 未启用正式远控，未新建正式配置或系统权限；未替换/重启运行中的应用。
+- 配置重建/读取通过测试不等同于系统登录重启、SMAppService 生命周期或无人值守稳定性验收。
+- 系统密码变更不保证立即撤销现有会话；立即撤销应使用断开所有连接/关闭远控。
+- 不支持远程解锁、Touch ID、FileVault 登录前、网络目录账户；不新增公网/隧道/防火墙设置。
+- 候选包为 ad-hoc 签名、未公证。候选包和当前运行包的授权身份可能不同，实际使用需用户确认系统权限。
+
+候选包（不会自动运行）
+dist/auth-choice-candidate/AwakePet.app
+
+复现
+swift test
+AWAKEPET_OUTPUT_DIR="$PWD/dist/auth-choice-candidate" ./scripts/build-app.sh release AwakePet
+.build/release/AwakePet --watch-policy-test
+codesign --verify --deep --strict dist/auth-choice-candidate/AwakePet.app
+node --check Sources/RemoteServer/Web/app.js
+zsh -n scripts/build-app.sh
+
+验证日志
+.build/historical-authentication/awake-auth-tests.log
+.build/historical-authentication/awake-auth-release.log
+.build/historical-authentication/awake-auth-watch.log

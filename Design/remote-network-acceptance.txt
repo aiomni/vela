@@ -1,0 +1,22 @@
+Publication note: device addresses and personal paths in this historical record were replaced with documentation examples or project-relative paths.
+
+AwakePet 通配监听 — 2026-10-31
+
+用户要求通过 0.0.0.0 监听所有 IPv4 接口。
+设置 → 远程控制 → 监听范围：仅局域网接口 / 所有 IPv4 接口（0.0.0.0）。
+listenOnAllInterfaces=true 时 HTTPS 只创建一个 0.0.0.0:port socket，包含 VPN；
+关闭时恢复按普通局域网接口绑定。旧配置默认保持仅局域网接口。
+0.0.0.0 不作为连接 URL、证书 SAN 或 Host 白名单项；这些仍使用当前实际接口 IP。
+--loopback-only 测试模式优先于此配置，仍只绑定回环。
+系统账户/自定义密码认证、Origin/Host 检查和 TLS 保持启用。
+先前按单个额外 IP 配置的方案已被本次监听范围设置替换。
+
+验证：swift test 19 项通过，其中新增真实 0.0.0.0 socket + HTTPS 请求/关闭验证，
+以及实际地址枚举策略、配置持久化和旧配置迁移测试。
+Release 已安装到 /Applications/AwakePet.app，实际配置 listenOnAllInterfaces=true。
+lsof 确认仅一个 IPv4 TCP *:8443 (LISTEN) socket；通过 127.0.0.1、192.0.2.10、
+192.0.2.20 请求首页及认证接口均返回 200，使用本机公开证书正常验证 TLS。
+设置窗口显示“所有 IPv4 接口（0.0.0.0）”，服务状态显示“监听 0.0.0.0:8443”。
+当前更新后的后台仍报告屏幕/键鼠权限未生效，此记录只验证网络监听与认证页面可达，
+不等同于当前安装版本的远程桌面输入验收。
+未使用第二台设备验证 VPN 路由及组织网络访问策略。

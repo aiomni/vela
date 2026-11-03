@@ -1,0 +1,56 @@
+AwakePet 远程控制验收记录 — 2026-10-31
+
+环境：本机 Apple silicon，macOS 27.0.1；Swift 6.4.2 / Xcode SDK 27.2。
+软件最低部署版本 macOS 26；本次未在 macOS 26 或 Intel 机器验证。
+
+已验证
+- swift test：RemoteCore 6 项 + RemoteServer 4 项。
+  配置默认关闭、配置校验与稳定未配置状态、密码派生/校验、限流、会话过期/撤销、输入校验。
+  真实 HTTPS 请求：未认证拒绝、错误密码、限流、Origin 拒绝、成功登录、静态资源、
+  改密撤销旧会话、关闭后 TCP listener 消失。测试仅信任生成的精确测试证书。
+  两个真实 WebRTC peer：SDP/ICE、1920×1080 H.264 编码与接收、可靠控制数据通道。
+  编码统计确认 VideoToolbox；测试覆盖 H.264 等级的帧尺寸和宏块速率约束。
+- 实际打包后台 + Chrome：ScreenCaptureKit 采集真实桌面，硬件编码，成功收到视频帧。
+  本机显示器 2056×1329；流畅模式收到 1670×1080，原始模式 2056×1328。
+  动态桌面抽样约 50fps。该数字是本机回环观测，不是跨设备 LAN 性能保证。
+- 仅在自建的 RemoteInputFixture 测试窗口执行输入：中文与符号、Command+A 替换，
+  双击、拖动、滚动，鼠标按下/释放配对。没有操作用户文档。
+- 原生 AwakePetRemoteViewer：首次指纹确认、真实桌面视频呈现、正常断开。
+- 设置页：默认关闭、端口/密码/权限/地址/证书及控制端入口显示，检查窗口无裁切。
+- Release 三个产品构建、资源/framework/helper 装配和 codesign --verify --deep --strict 通过。
+  node --check 网页脚本及 zsh -n 打包脚本通过。
+- 原有 AwakePet --self-test 与 --watch-policy-test 均退出 0；本次无 INCONCLUSIVE 项。
+  自检的远控 Reset 使用临时配置目录，禁止注册/撤销真实后台登录项。
+- 最终 Release 包再次真实采集/编码，Chrome 收到 1670×1080 视频；断开前服务记录
+  keysDown=1、buttonsDown=1，断开重连后两者均为 0；fixture 同时记录一次 mouseDown
+  和一次 mouseUp。重新连接后视频恢复。关闭临时配置后状态 stopped，18443 不再监听。
+- 测试监听仅限 HTTPS 回环入口；WebRTC 的 ICE 仍按库自身枚举本机网络接口。
+- 最终退出回归：对正在监听的 Release 后台发送 SIGTERM，进程 0.01 秒内正常退出 0，
+  TCP 端口关闭。修复了从主 dispatch 信号回调进入 terminateLater 导致的退出等待问题。
+  测试结束停止全部自建远控/fixture 进程，清除原生客户端的测试地址与证书指纹偏好。
+  原有 /Applications/AwakePet.app 进程保持运行；生产配置未创建，8443 未监听。
+
+工程边界及未验证项
+- 未使用第二台物理设备，尚未验证真实 Wi-Fi/有线跨机延迟、P95≤100ms、1080p60、
+  丢包/限速、72 小时运行、多屏热插拔、真实网络切换、锁屏/睡眠/合盖恢复。
+- 本次未改变生产远控设置，也未完成真实登录重启后的 SMAppService 生命周期验证。
+  系统批准和隐私授权提示仍需首次启用时在本机完成。
+- 当前钥匙串没有有效签名证书；没有完成 Developer ID、公证、持久采集 entitlement 申请。
+  ad-hoc 产物可用于本机验证，不能据此承诺更新后权限稳定或生产无人值守可靠性。
+- 本版没有音频、文件/剪贴板同步、Bonjour、TURN 中继配置、独立光标、登录前控制。
+  它们不属于本次核心远控交付；不得把设计文档中的后续能力当作已实现。
+
+复测
+  swift test
+  ./scripts/build-app.sh release AwakePet
+  codesign --verify --deep --strict dist/AwakePet.app
+  .build/release/AwakePet --watch-policy-test
+  .build/release/AwakePet --self-test
+
+桌面输入 fixture：scripts/remote-input-fixture.swift，可编译成测试 App。
+真实权限测试只能向专用测试窗口发送输入；先确认该窗口 active && keyWindow。
+回环后台参数：--remote-directory <临时目录> --loopback-only --no-status-item。
+临时目录需写入 RemoteConfiguration（enabled=true、测试端口及加盐密码验证值）；
+不要使用生产目录。关闭后确认测试端口、采集和键鼠状态均已清理。
+
+生产使用保持默认关闭；用户从设置显式开启。使用步骤和证书信任见 USAGE.txt。

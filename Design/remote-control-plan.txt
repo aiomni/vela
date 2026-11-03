@@ -1,0 +1,30 @@
+AwakePet 局域网远程控制 — 实施与验收
+
+范围：设置内默认关闭、显式开启；IP:port + 访问密码；无账号、设备配对或逐次本机确认。
+系统授权首次在被控 Mac 完成。HTTPS 证书信任与访问密码独立。
+
+架构：RemoteCore（协议、配置、密码和会话）;
+RemoteRTC（ScreenCaptureKit → CVPixelBuffer → libwebrtc/VideoToolbox H.264、输入执行）;
+RemoteServer（NIO HTTPS、登录、WebRTC SDP/ICE 信令、网页资源）;
+AwakePetRemoteHost（独立用户会话 LoginItem，配置/状态存放在仅本用户可读写的目录）;
+AwakePetRemoteViewer（AppKit 原生控制端、证书指纹确认、硬件解码）;
+AwakePet 设置（开关、端口、密码、权限、地址、状态和断开入口）。
+
+登录密码以 PBKDF2-HMAC-SHA256 600000 次、32 字节随机盐派生，仅持久化验证值。
+登录限制并发与尝试频率，登录会话绝对过期与空闲过期；修改密码撤销全部会话。
+媒体优先局域网 UDP 直连；HTTPS 是连接入口，不宣称媒体只使用一个 TCP 端口。
+一个控制者；可靠键鼠边沿事件，移动事件允许丢弃；断线/失焦释放所有按下状态。
+控制坐标与显示器 ID 绑定，点击自带坐标。中文走单独文本提交通道。
+保活为独立所有者，不能撤销已有手动和 Agent 保活；低电量/过热遵循停止策略。
+不实现或承诺绕过锁屏、TCC、FileVault、无显示器的图形会话。
+
+验证门槛：
+1. 软件包可重现解析、debug/release 构建，helper/framework/resources 装配和签名检查。
+2. 密码错误/正确、限流、过期、撤销；配置边界；非法事件和坐标拒绝。
+3. HTTPS 真实请求验证认证、Origin/Host 校验、体积限制、证书和静态页面。
+4. WebRTC 真实 SDP/ICE、视频编码/接收、数据通道、断开与再连接。
+5. 桌面授权后查看和输入；多屏/Retina/IME/锁屏/合盖/网络切换须明确区分实测与未实测。
+6. 关闭不再监听/采集/执行输入；密码修改旧会话失效；原功能构建与适用回归检查。
+
+参考目标（不是未测保证）：有线 LAN 1080p60，交互延迟 P95 <=100ms；72h 稳定性测试。
+涉及权限手动确认、签名证书/Apple entitlement 审批、第二台设备或长时间测试的外部条件须明确记录。

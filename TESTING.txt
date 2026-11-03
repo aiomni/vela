@@ -1,0 +1,78 @@
+Vela validation
+
+Routine checks (run from the repository root):
+  swift build -c debug
+  swift test
+  node --test Tests/WebClient/*.test.cjs
+  python3 scripts/check-localization.py
+  python3 scripts/check-companion.py
+  .build/debug/Vela --check-settings-controls
+  .build/debug/Vela --watch-policy-test
+  .build/debug/Vela --self-test
+
+Settings visual review (private preferences and remote files; no power assertions,
+hotkey registration, remote listener, or real login-item changes):
+  .build/debug/Vela --settings-review --settings-appearance light -velaLanguage en
+  .build/debug/Vela --settings-review --settings-appearance dark -velaLanguage zh-Hans
+  .build/debug/Vela --settings-review --settings-appearance contrast-dark --settings-opaque
+Use --settings-page general|keepAwake|agent|appearance|remote to select a page.
+Language changes in this review window are process-only. Close the review window
+before launching another review. Check all five pages at minimum window size,
+native slider keyboard access, navigation history, and both languages. There is
+no settings search field. Chinese navigation titles each contain two characters.
+
+The native self-test briefly creates real IOKit power assertions and test windows,
+then releases them. It uses isolated preferences, remote settings, and login-item
+fakes. Live Metal drawable checks need a visible desktop; an obscured window makes
+those checks INCONCLUSIVE. These tests do not prove real unattended lock behavior.
+The native language switching check restores the original language selection.
+The focused --check-settings-controls command verifies native compact switches,
+hover scrollbar rendering, and stable scrolling with a hidden window. It creates
+no hotkeys, power assertions, or remote services and can run alongside Vela.
+Run the full --self-test in an isolated desktop session to avoid conflicts with
+another running Vela instance's hotkeys and real pointer/focus state.
+
+Browser fixtures (no real desktop capture, display changes, or input injection):
+  python3 Tests/WebClient/mock-server.py --port 8769
+Open http://127.0.0.1:8769 in a fresh browser context. Load these scripts and call:
+  /language-tests.js -> await runLocalizationChecks()
+  /session-tests.js  -> await runPrivateSessionChecks()
+  /touch-tests.js    -> await runTouchChecks()
+Run language checks first, on a fresh page. Also check a narrow/mobile viewport.
+Language switching must retain connections and input values, and default to English
+without an existing selection. Native/web translation catalogs must remain identical.
+
+Bundle validation:
+  ./scripts/build-app.sh release Vela
+  codesign --verify --deep --strict dist/Vela.app
+  plutil -lint dist/Vela.app/Contents/Info.plist
+  ./scripts/build-app.sh release Vela --offline-check
+
+Packaging must include Vela_Vela.bundle, Vela_RemoteServer.bundle, and
+Vela_VelaLocalization.bundle, plus the controller and both languages of localized
+InfoPlist.strings. The controller also needs its localization resource bundle.
+
+Intrusive live tests are not routine validation:
+- scripts/verify-lid-live.sh changes real pmset state and requests administrator
+  approval. Preserve the initial setting and verify watchdog recovery afterward.
+- --physical-blackout-probe changes real physical/virtual displays. Its recovery
+  watchdog must be ready before disabling physical displays.
+- --remote-session-probe / --remote-web-probe may require real capture/input access.
+  Historical detach/lock-first prototypes can switch sessions and require local login.
+- --remote-display-watchdog is an internal temporary recovery process, not a normal
+  user command.
+Only run these when the requested task includes the corresponding real-device test.
+
+LockLab remains a separate experiment:
+  ./scripts/build-app.sh release LockLab
+  .build/debug/LockLab --smoke-test
+  .build/debug/LockLab --ui-smoke-test
+  .build/debug/LockLab --idle-sample
+Its power assertions, user-activity declarations, screen saver, display sleep, and
+password locking must be observed as separate mechanisms. Do not infer managed lock
+behavior from a short smoke test. The full historical protocol is archived under
+Design/archive/awakepet-testing-2026-11-03.zh-CN.txt.
+
+Historical physical-display and system-lockscreen acceptance is recorded in
+Design/remote-final-acceptance.txt. Current Vela expression preservation validation
+is recorded separately in Design/vela-expression-restoration-2026-11-03.md.

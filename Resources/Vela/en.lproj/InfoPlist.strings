@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "Vela";
+"NSLocalNetworkUsageDescription" = "Manage local network remote desktop connections.";
+"NSScreenCaptureUsageDescription" = "Stream the selected display over an encrypted connection to an authenticated remote controller.";

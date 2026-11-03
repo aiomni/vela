@@ -1,0 +1,40 @@
+# Swift and Xcode build output and local workspace state
+/.build/
+/dist/
+/.swiftpm/
+/build/
+/DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# macOS filesystem metadata
+.DS_Store
+.AppleDouble/
+.LSOverride
+._*
+.Spotlight-V100/
+.Trashes/
+
+# Local signing, environment configuration, and private scratch data
+.signing-identity.local
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.p8
+*.key
+*.pem
+*.keychain
+*.keychain-db
+/.local/
+/.vela-local-archive/
+
+# Runtime logs, Python caches, and temporary editor files
+*.log
+__pycache__/
+*.py[cod]
+*.tmp
+*.swp
+*.swo
+*~

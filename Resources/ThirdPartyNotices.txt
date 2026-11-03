@@ -1,0 +1,47 @@
+Companion asset provenance and usage restrictions
+
+Source: https://github.com/blessonism/grok-icon-study
+Reference revision: 647e9bd7c60290c42a738fad586589b3f36a4680
+The original geometry, eye poses, expression playlists, and timing data are
+preserved. These assets are not authored by Vela or relicensed by this project.
+
+Upstream notice (English translation):
+The assets belong to xAI / their respective rights holders.
+This repository is for study and reference only; do not use commercially or
+redistribute. Do not publish its content as your own trademark or original assets.
+
+Bulchimbeon watchdog pattern
+
+Source: https://github.com/s3onghyun/bulchimbeon
+MIT License
+Copyright (c) 2026 s3onghyun
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Remote control dependencies
+
+WebRTC 154.0.0 prebuilt macOS framework: https://github.com/stasel/WebRTC
+WebRTC project: https://webrtc.org (BSD license; upstream binary notice included).
+SwiftNIO 2.104.0: https://github.com/apple/swift-nio
+SwiftNIO SSL 2.37.5: https://github.com/apple/swift-nio-ssl
+Transitive Swift Atomics, Collections and System versions are fixed in Package.resolved.
+Their Apache 2.0 licenses, Swift Runtime Library exceptions where applicable,
+NIO notices and llhttp license are bundled in Resources/RemoteLicenses.
+The WebRTC binary's license and its Swift package license are included separately.
+These dependencies do not change the character-asset restrictions stated above.
