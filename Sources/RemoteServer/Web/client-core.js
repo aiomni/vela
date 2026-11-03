@@ -17,6 +17,11 @@
     const dt=current.timestamp-(previous?.timestamp??current.timestamp),db=current.bytesReceived-(previous?.bytesReceived??current.bytesReceived);
     return dt>0&&db>=0?db*8/dt/1000:null;
   }
+  function validVirtualDisplay({width,height,hiDPI}){
+    if(!Number.isInteger(width)||!Number.isInteger(height)||width<640||height<480||width>3840||height>3840||width%2||height%2||width*height>3840*2160)return false;
+    const portrait=height>width;
+    return !hiDPI||(width>=(portrait?960:1280)&&height>=(portrait?1280:960));
+  }
   function upgradeH264SDP(sdp,profiles){
     return sdp.split(/(?=m=)/).map(section=>{
       if(!section.startsWith('m=video'))return section;
@@ -37,7 +42,7 @@
     if(dy<=-60&&-dy>Math.abs(dx)*1.4&&deltas.every(p=>p.y<=-40&&-p.y>Math.abs(p.x)*1.2))return 'overview';
     return null;
   }
-  const api={modifierName,surfaceSize,point,bitrate,upgradeH264SDP,fourFingerAction};
+  const api={modifierName,surfaceSize,point,bitrate,upgradeH264SDP,fourFingerAction,validVirtualDisplay};
   if(typeof module!=='undefined')module.exports=api;
   root.RemoteClientCore=api;
 })(globalThis);

@@ -74,7 +74,7 @@ Remote control needs direct network reachability over LAN or VPN. Vela does not 
 
 ## Virtual and physical displays
 
-Create and select a virtual display in the web **Display** panel. The maximum pixel budget is 3840 × 2160, including portrait layouts. HiDPI uses half-sized logical dimensions in each direction; the Quality panel shows actual received dimensions.
+Create and select a virtual display in the web **Display** panel. There are 18 presets, including 13 portrait sizes grouped for phones, tablets, and higher resolutions, plus custom dimensions. For a phone, try 1080 × 2400 with HiDPI; its logical desktop is 540 × 1200. The maximum pixel budget is 3840 × 2160, including portrait layouts. HiDPI uses half-sized logical dimensions in each direction and requires at least 640 × 480 landscape or 480 × 640 portrait desktop points; the Quality panel shows actual received dimensions.
 
 After confirming the virtual display works, open **Physical displays** to turn off the Mac's built-in and external physical displays. Remote input continues on the virtual display. Local keyboard/mouse input or **Restore all physical displays** restores them. Disconnection restores physical displays before closing the virtual one.
 

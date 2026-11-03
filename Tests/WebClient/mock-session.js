@@ -28,15 +28,25 @@ window.RTCPeerConnection=class{
 };
 
 window.__sessionFixture={state:'local',recovering:false,requiresAccountVerification:false,canEnterPrivacy:true,canManageVirtualDisplay:true,localWakePermission:true,displaySleepRequested:false};
+window.__virtualRequests=[];
+window.__virtualFixtureConfiguration={width:3840,height:2160,hiDPI:true};
 window.__blackoutAttempts=0;window.__restoreRequests=0;
 const baseFixtureFetch=window.fetch;
 window.fetch=async(path,options={})=>{
  const key=String(path).split('/api/')[1];
  const response=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});
+ const virtualDisplay=()=>{
+  const {width,height,hiDPI}=__virtualFixtureConfiguration,scale=hiDPI?2:1;
+  return {id:1,name:'Vela Virtual Display',width,height,logicalWidth:width/scale,logicalHeight:height/scale,isVirtual:true};
+ };
+ if(key==='virtual-display'){
+  const {configuration}=JSON.parse(options.body);__virtualRequests.push(configuration);
+  __virtualFixtureConfiguration=configuration;return response({displays:[virtualDisplay()],displayID:1});
+ }
  if(key==='display-capabilities')return response({virtualDisplay:true,privateSession:false,physicalBlackout:true});
  if(key==='poll'){
   const value=await (await baseFixtureFetch(path,options)).json();value.session=window.__sessionFixture;
-  value.displays=[{id:1,name:'Vela Virtual Display',width:3840,height:2160,logicalWidth:1920,logicalHeight:1080,isVirtual:true}];value.displayID=1;
+  value.displays=[virtualDisplay()];value.displayID=1;
   value.inputPermission=!__sessionFixture.requiresAccountVerification&&!__sessionFixture.recovering;
   return response(value);
  }

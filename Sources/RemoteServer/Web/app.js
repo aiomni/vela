@@ -83,8 +83,7 @@ async function changeVirtualDisplay(remove=false){
   if(virtualBusy||!connected||!mediaID||viewOnly)return;
   const configuration={width:Number($('virtual-width').value),height:Number($('virtual-height').value),hiDPI:$('virtual-hidpi').checked};
   if(!remove){
-    const {width,height,hiDPI}=configuration;
-    if(!Number.isInteger(width)||!Number.isInteger(height)||width<640||height<480||width>3840||height>3840||width%2||height%2||width*height>3840*2160||(hiDPI&&(width<1280||height<960))){message(t("Enter valid even dimensions with at most 3840×2160 total pixels. HiDPI requires at least 1280×960 pixels."));return;}
+    if(!Core.validVirtualDisplay(configuration)){message(t("Enter valid even dimensions with at most 3840×2160 total pixels. HiDPI requires at least 1280×960 landscape or 960×1280 portrait pixels."));return;}
   }
   release();virtualBusy=true;updateVirtualControls();$('display').disabled=true;$('quality').disabled=true;
   const epoch=connectionEpoch;

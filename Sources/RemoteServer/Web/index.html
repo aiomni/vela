@@ -45,7 +45,37 @@
     <aside id="display-panel" class="panel" hidden aria-label="Display settings"><div class="panel-heading"><h2>Display and scaling</h2><button data-close-panel aria-label="Close display settings">×</button></div><label for="display">Host display</label><select id="display"></select><label for="zoom">Video size</label><select id="zoom"><option value="fit">Fit window</option><option value="1">100% · Pixel for pixel</option><option value="1.5">150% · Zoom in</option><option value="2">200% · Zoom in</option></select><p>Pixel-for-pixel view avoids scaling blur. Scroll to view a desktop larger than the window. Zooming does not add detail.</p><button id="center-view" class="wide">Center video</button>
       <section id="virtual-controls" class="virtual-controls" aria-label="Virtual display">
         <h3>Virtual display</h3><p>Add a remote display to this Mac. Move windows into it; it shares keyboard and mouse focus with the local session.</p>
-        <label for="virtual-preset">Pixel resolution</label><select id="virtual-preset"><option value="1920,1080">1920 × 1080 · Landscape</option><option value="2560,1440">2560 × 1440 · Landscape</option><option value="3840,2160" selected>3840 × 2160 · Landscape</option><option value="2160,3840">2160 × 3840 · Portrait</option><option value="custom">Custom</option></select>
+        <label for="virtual-preset">Pixel resolution</label>
+        <select id="virtual-preset">
+          <optgroup label="Phone · Portrait">
+            <option value="960,1920">960 × 1920</option>
+            <option value="1080,1920">1080 × 1920</option>
+            <option value="1080,2160">1080 × 2160</option>
+            <option value="1080,2340">1080 × 2340</option>
+            <option value="1080,2400">1080 × 2400</option>
+            <option value="1170,2532">1170 × 2532</option>
+            <option value="1284,2778">1284 × 2778</option>
+          </optgroup>
+          <optgroup label="Tablet · Portrait">
+            <option value="1200,1920">1200 × 1920</option>
+            <option value="1536,2048">1536 × 2048</option>
+            <option value="1600,2560">1600 × 2560</option>
+          </optgroup>
+          <optgroup label="High resolution · Portrait">
+            <option value="1440,2560">1440 × 2560</option>
+            <option value="1440,3120">1440 × 3120</option>
+            <option value="2160,3840">2160 × 3840</option>
+          </optgroup>
+          <optgroup label="Landscape">
+            <option value="1920,1080">1920 × 1080</option>
+            <option value="1920,1200">1920 × 1200</option>
+            <option value="2560,1440">2560 × 1440</option>
+            <option value="2560,1600">2560 × 1600</option>
+            <option value="3840,2160" selected>3840 × 2160</option>
+          </optgroup>
+          <option value="custom">Custom</option>
+        </select>
+        <p>For phones, try 1080 × 2400 portrait. HiDPI enlarges the interface while retaining pixel detail.</p>
         <div class="resolution-inputs"><label>Width<input id="virtual-width" type="number" min="640" max="3840" step="2" value="3840" inputmode="numeric"></label><span>×</span><label>Height<input id="virtual-height" type="number" min="480" max="3840" step="2" value="2160" inputmode="numeric"></label></div>
         <label class="check-label"><input id="virtual-hidpi" type="checkbox" checked>HiDPI · Double interface size, retain detail</label>
         <p id="virtual-summary">Desktop 1920 × 1080, output 3840 × 2160 pixels.</p>

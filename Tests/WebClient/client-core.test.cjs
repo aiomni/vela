@@ -1,5 +1,23 @@
 const test=require('node:test');const assert=require('node:assert/strict');
 const core=require('../../Sources/RemoteServer/Web/client-core.js');
+test('All virtual display presets work with and without HiDPI, including phone portrait modes',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const html=fs.readFileSync(path.resolve(__dirname,'../../Sources/RemoteServer/Web/index.html'),'utf8');
+ const select=html.match(/<select id="virtual-preset">([\s\S]*?)<\/select>/)[1];
+ const presets=[...select.matchAll(/<option value="(\d+),(\d+)"/g)].map(match=>({width:Number(match[1]),height:Number(match[2])}));
+ assert.equal(presets.length,18);
+ assert.ok(presets.filter(p=>p.height>p.width).length>=10);
+ for(const preset of presets)for(const hiDPI of [true,false])assert.equal(core.validVirtualDisplay({...preset,hiDPI}),true,JSON.stringify({...preset,hiDPI}));
+ assert.match(select,/<option value="3840,2160" selected>/);
+});
+test('Virtual display validation rotates the HiDPI minimum without exceeding the pixel budget',()=>{
+ for(const [width,height,hiDPI] of [[960,1280,true],[1080,2400,true],[1280,960,true],[720,1600,false],[2160,3840,true]]){
+  assert.equal(core.validVirtualDisplay({width,height,hiDPI}),true);
+ }
+ for(const [width,height,hiDPI] of [[958,1280,true],[960,1278,true],[720,1600,true],[1280,958,true],[1081,2400,false],[3840,3840,false],[640,480,true],[Infinity,1920,false]]){
+  assert.equal(core.validVirtualDisplay({width,height,hiDPI}),false);
+ }
+});
 test('Four-finger desktop gestures require four coherent fingers and reject ambiguous motion',()=>{
  const origin=new Map(Array.from({length:4},(_,i)=>[i,{x:100+i*35,y:300}]));
  const moved=(dx,dy)=>new Map([...origin].map(([id,p])=>[id,{x:p.x+dx,y:p.y+dy}]));

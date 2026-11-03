@@ -780,5 +780,12 @@
   "Input control: {0}\nScreen Recording: {1}": "键鼠控制：{0}\n屏幕录制：{1}",
   "Connect using IP:port and the password for the selected authentication method. System authentication accepts only the local account running Vela and does not itself unlock the screen. Grant Vela Screen Recording and {0} access, then quit and reopen it if macOS requests it. Remote control starts and stops with Vela; its enabled setting is saved. Hiding the companion or closing Settings keeps Vela running. Browsers require certificate trust; Vela Connect asks you to verify its fingerprint.": "使用 IP:端口和所选认证方式对应的密码连接。系统认证仅允许运行 Vela 的本机账户，不会解除锁屏。请为 Vela 授予屏幕录制与{0}权限；授权后按系统提示退出并重开 Vela。远程控制随 Vela 启动和退出；开启设置会保留。隐藏桌宠或关闭设置不会退出应用。浏览器需信任 TLS 证书，Vela Connect 首次连接需核对指纹。",
   "Grant Vela Screen Recording and {0} access in System Settings → Privacy & Security. Quit and reopen Vela if macOS requests it.": "请在系统设置 → 隐私与安全性中为 Vela 授予屏幕录制与{0}权限；授权后按系统提示退出并重新打开 Vela。",
-  "Grant Vela screen and remote control access in System Settings → Privacy & Security. Quit and reopen Vela if macOS requests it.": "请在系统设置 → 隐私与安全性中为 Vela 授予屏幕录制和远程控制权限；授权后按系统提示退出并重新打开 Vela。"
+  "Grant Vela screen and remote control access in System Settings → Privacy & Security. Quit and reopen Vela if macOS requests it.": "请在系统设置 → 隐私与安全性中为 Vela 授予屏幕录制和远程控制权限；授权后按系统提示退出并重新打开 Vela。",
+  "Phone · Portrait": "手机 · 竖屏",
+  "Tablet · Portrait": "平板 · 竖屏",
+  "High resolution · Portrait": "高清 · 竖屏",
+  "Landscape": "横屏",
+  "For phones, try 1080 × 2400 portrait. HiDPI enlarges the interface while retaining pixel detail.": "手机可先尝试 1080 × 2400 竖屏。HiDPI 放大界面，同时保留像素细节。",
+  "HiDPI needs at least 640×480 landscape or 480×640 portrait desktop points. Increase the pixel resolution or turn off HiDPI.": "HiDPI 桌面逻辑尺寸至少为横屏 640×480 或竖屏 480×640。请提高像素分辨率或关闭 HiDPI。",
+  "Enter valid even dimensions with at most 3840×2160 total pixels. HiDPI requires at least 1280×960 landscape or 960×1280 portrait pixels.": "请输入有效的偶数尺寸，总像素数不超过 3840×2160。HiDPI 至少需要横屏 1280×960 或竖屏 960×1280 像素。"
 }

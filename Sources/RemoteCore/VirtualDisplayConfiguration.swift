@@ -15,8 +15,9 @@ public struct VirtualDisplayConfiguration: Codable, Equatable, Sendable {
               width * height <= 3840 * 2160, width.isMultiple(of: 2), height.isMultiple(of: 2) else {
             throw RemoteError.message("Virtual display dimensions must be even: width 640–3840, height 480–3840, with no more than 3840×2160 total pixels.")
         }
-        guard !hiDPI || (logicalWidth >= 640 && logicalHeight >= 480) else {
-            throw RemoteError.message("HiDPI needs a logical desktop of at least 640×480. Increase the pixel resolution or turn off HiDPI.")
+        let portrait = height > width
+        guard !hiDPI || (logicalWidth >= (portrait ? 480 : 640) && logicalHeight >= (portrait ? 640 : 480)) else {
+            throw RemoteError.message("HiDPI needs at least 640×480 landscape or 480×640 portrait desktop points. Increase the pixel resolution or turn off HiDPI.")
         }
     }
 }

@@ -40,8 +40,8 @@
       const value=node.nodeValue,trimmed=value.trim();
       if(trimmed)node.nodeValue=value.replace(trimmed,t(trimmed));
     }
-    for(const element of scope.querySelectorAll('[title],[aria-label],[placeholder]')){
-      for(const attribute of ['title','aria-label','placeholder']){
+    for(const element of scope.querySelectorAll('[title],[aria-label],[placeholder],optgroup[label]')){
+      for(const attribute of ['title','aria-label','placeholder','label']){
         if(element.hasAttribute(attribute))element.setAttribute(attribute,t(element.getAttribute(attribute)));
       }
     }

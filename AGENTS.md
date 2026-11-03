@@ -85,6 +85,7 @@ Do not run `scripts/verify-lid-live.sh`, lockscreen probes, or blackout probes a
 - No keep-awake assertion at normal startup. Manual sessions do not automatically resume; explicitly enabled remote access follows the main app lifecycle.
 - Manual, Agent, and remote keep-awake owners must not release each other's assertions.
 - Preserve physical-display recovery ordering, local-input escape, watchdog heartbeat handling, and original topology restoration. Turning off physical displays is not password locking.
+- Keep virtual display validation consistent between RemoteCore and the web client. HiDPI requires at least 640 by 480 landscape or 480 by 640 portrait logical points. Preserve even backing-pixel dimensions, existing axis bounds, and the 3840 by 2160 total pixel budget. All advertised presets must work with either HiDPI setting.
 - Ordinary lock-screen control uses macOS's real password interface. Never bypass TCC, FileVault, authentication, system lock policies, or account boundaries.
 - Remote control is single-controller, authenticated, and encrypted. Preserve Origin/Host validation, password derivation, rate limits, certificate pinning/trust, session expiry/revocation, and input release on blur/disconnect.
 - Do not add remote helpers or persistent privileged daemons to replace the app-owned host or temporary recovery monitors without an explicit requirement.

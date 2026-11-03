@@ -26,6 +26,7 @@ class Handler(BaseHTTPRequestHandler):
             "/touch-tests.js": (TESTS / "touch-gestures.browser.js", "text/javascript"),
             "/language-tests.js": (TESTS / "localization.browser.js", "text/javascript"),
             "/layout-tests.js": (TESTS / "responsive-layout.browser.js", "text/javascript"),
+            "/virtual-tests.js": (TESTS / "virtual-presets.browser.js", "text/javascript"),
         }
         if route not in routes:
             self.send_error(404)
