@@ -38,7 +38,12 @@ Open http://127.0.0.1:8769 in a fresh browser context. Load these scripts and ca
   /language-tests.js -> await runLocalizationChecks()
   /session-tests.js  -> await runPrivateSessionChecks()
   /touch-tests.js    -> await runTouchChecks()
+  /layout-tests.js   -> await runResponsiveLayoutChecks()
 Run language checks first, on a fresh page. Also check a narrow/mobile viewport.
+Run layout checks at 320, 360, 390, 430, 768, 800, 844, 1024, 1100, 1101, 1280,
+and 1440 CSS pixels, including a short landscape viewport. These check both
+languages, toolbar label bounds and reachability, status/metrics separation,
+all panels, keyboard screen space, collapse/expand, and session continuity.
 Language switching must retain connections and input values, and default to English
 without an existing selection. Native/web translation catalogs must remain identical.
 
