@@ -45,6 +45,7 @@ Open http://127.0.0.1:8769 in a fresh browser context. Load these scripts and ca
   /virtual-tests.js  -> await runVirtualPresetChecks()
   /layout-tests.js   -> await runResponsiveLayoutChecks()
   /mouse-sidebar-tests.js -> await runMouseSidebarChecks()
+  /keyboard-layout-tests.js -> await runKeyboardLayoutChecks()
 Run language checks first, on a fresh page. Also check a narrow/mobile viewport.
 Run layout checks at 320, 360, 390, 430, 768, 800, 844, 1024, 1100, 1101, 1280,
 and 1440 CSS pixels, including a short landscape viewport. These check both
@@ -62,6 +63,13 @@ space docking, mode buttons, collapsed help, input release, animation progress,
 centering, explicit dismissal, reopening, and peer continuity. Separately rotate
 an automatically docked session to portrait and back, then repeat after closing
 the sidebar; an explicit close must remain closed for that connection.
+Run keyboard-layout checks at 844x390 after localization; at 568x320 pass
+{expectSideAvailable:false}. Verify both Side and Bottom in English and Chinese,
+including 771x390/772x390 width boundaries, saved preference after reload,
+portrait fallback and landscape restoration, unsent normal/masked text,
+modifier release, sticky layout controls, key delivery, and peer continuity.
+Side layout must keep the screen and keyboard in separate columns and preserve
+the full workspace height for video. Bottom remains the existing layout.
 Virtual preset checks use mocked display responses to verify all 18 presets with
 and without HiDPI, localized option groups, logical-size summaries, request
 dimensions, custom-size rejection, and session continuity. They create no real
