@@ -34,9 +34,15 @@ test('Retina pixel mapping and fit preserve aspect ratio without inventing detai
   assert.deepEqual(core.surfaceSize(3840,2160,1280,800,'fit',2),{width:1280,height:720});
   assert.deepEqual(core.surfaceSize(3840,2160,1280,800,'1',2),{width:1920,height:1080});
   assert.deepEqual(core.surfaceSize(3840,2160,1280,800,'2',2),{width:3840,height:2160});
+  assert.deepEqual(core.surfaceSize(3840,2160,1280,800,'4',2),{width:7680,height:4320});
   assert.deepEqual(core.point({left:10,top:50,width:1920,height:1080},970,590),{x:.5,y:.5});
   assert.equal(core.point({left:10,top:50,width:1920,height:1080},9,590),null);
   assert.deepEqual(core.point({left:10,top:50,width:1920,height:1080},0,2000,true),{x:0,y:1});
+});
+test('Detail zoom preserves source quality while fit mode budgets for the viewport',()=>{
+ assert.deepEqual(core.viewportFeedback(1280,800,2,'fit'),{viewportWidth:2560,viewportHeight:1600});
+ for(const zoom of ['1','1.5','2','4'])assert.deepEqual(core.viewportFeedback(1280,800,2,zoom),{});
+ assert.deepEqual(core.viewportFeedback(10000,10000,4,'fit'),{viewportWidth:16384,viewportHeight:16384});
 });
 test('Upgrade only verified H264 receive profiles in packetization mode 1',()=>{
  const sdp='v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=fmtp:111 profile-level-id=42e01f\r\nm=video 9 UDP/TLS/RTP/SAVPF 108 109 110 111\r\na=rtpmap:108 H264/90000\r\na=fmtp:108 profile-level-id=42e01f;packetization-mode=1\r\na=rtpmap:109 H264/90000\r\na=fmtp:109 profile-level-id=64001f;packetization-mode=1\r\na=rtpmap:110 H264/90000\r\na=fmtp:110 profile-level-id=42e01f;packetization-mode=0\r\na=rtpmap:111 VP9/90000\r\na=fmtp:111 profile-level-id=42e01f;packetization-mode=1\r\n';

@@ -39,6 +39,8 @@ Open http://127.0.0.1:8769 in a fresh browser context. Load these scripts and ca
   /language-tests.js -> await runLocalizationChecks()
   /session-tests.js  -> await runPrivateSessionChecks()
   /touch-tests.js    -> await runTouchChecks()
+  /codec-tests.js    -> await runCodecFallbackChecks()
+  /zoom-tests.js     -> await runZoomChecks()
   /virtual-tests.js  -> await runVirtualPresetChecks()
   /layout-tests.js   -> await runResponsiveLayoutChecks()
 Run language checks first, on a fresh page. Also check a narrow/mobile viewport.
@@ -52,6 +54,8 @@ dimensions, custom-size rejection, and session continuity. They create no real
 displays. Swift and Node tests cover portrait/landscape HiDPI boundary validation.
 Language switching must retain connections and input values, and default to English
 without an existing selection. Native/web translation catalogs must remain identical.
+Codec checks inject a verified HEVC receiver with stalled decoding, then require
+an authenticated H.264 replacement with restored input and no reconnect loop.
 
 Bundle validation:
   zsh -n scripts/build-app.sh scripts/package-ci.sh
@@ -95,3 +99,73 @@ Design/archive/awakepet-testing-2026-11-03.zh-CN.txt.
 Historical physical-display and system-lockscreen acceptance is recorded in
 Design/remote-final-acceptance.txt. Current Vela expression preservation validation
 is recorded separately in Design/vela-expression-restoration-2026-11-03.md.
+
+Desktop streaming quality (synthetic, no desktop capture or input injection):
+  swift test --filter RemoteStreamQualityTests
+  swift test --filter DesktopStreamMetricsTests
+  swift test --filter RemoteServerTests.testWebRTC4KVideoAndControlOverRealPeerConnection
+  node --test Tests/WebClient/lossless.test.cjs
+These cover pressure/recovery hysteresis, viewport budgets, bounded refinement,
+interval/reset statistics, native and browser stale-tile rejection, HEVC hardware
+probe gating, and actual H.264 SEI identity through encrypted 4K RTP transport.
+The optional browser harness is skipped during routine swift test. To exercise
+real browser decoding and synchronized PNG composition, run in two terminals:
+  VELA_SYNTHETIC_BROWSER_PORT=18873 VELA_SYNTHETIC_BROWSER_INFO=/tmp/vela-synthetic-browser-info.json swift test --filter DesktopBrowserTransportTests
+After the info file appears, within 50 seconds run:
+  python3 Tests/WebClient/synthetic-stream-server.py --info /tmp/vela-synthetic-browser-info.json --port 18773
+Open http://127.0.0.1:18773 in a browser. Inspect window.result: complete must be
+true and frames, markers, and draws must be positive. The proxy trusts only the
+fixture's generated public certificate and binds only to loopback. Both ends use
+synthetic pixels; no real credentials, capture permission, or input are involved.
+Stop the Python fixture after the test. These are correctness smoke tests, not a
+measurement of screen-to-screen latency, real-network recovery, or battery cost.
+
+Streaming implementation and acceptance limitations are recorded in
+Design/vela-stream-quality-2026-11-03.md. Live ScreenCaptureKit hot updates, native
+window compositing, shaped-network performance and long sessions need separate
+real-device acceptance. HEVC hardware support alone is insufficient: the pinned
+WebRTC transport uses Vela's hardware H.265 adapters after a verified 4K adapter round trip; unsupported peers retain H.264.
+
+Hardware HEVC transport and fallback (synthetic pixels, no TCC or desktop changes):
+  swift test --filter DesktopHEVCTransportTests
+This verifies actual encrypted 4K H.265 encode/decode implementations, image
+contrast after live resizing, control delivery, negotiated level limits, malformed
+NAL rejection, and actual H.264 reception for unsupported peers or failed HEVC
+encoder initialization. Hardware-specific cases skip only if hardware is absent.
+
+For real-browser 4K HEVC, use the optional browser harness above with:
+  VELA_SYNTHETIC_BROWSER_HEVC=1 VELA_SYNTHETIC_BROWSER_PORT=18873 VELA_SYNTHETIC_BROWSER_INFO=/tmp/vela-hevc-browser-info.json swift test --filter DesktopBrowserTransportTests
+  python3 Tests/WebClient/synthetic-stream-server.py --info /tmp/vela-hevc-browser-info.json --port 18773
+Within the fixture's 50-second window open http://127.0.0.1:18773. window.result
+must show complete=true, codec=video/H265, width=3840, height=2160, frames>0 and
+hardwareCapability=true. runtimeHardwareReported may be null because browsers
+can omit runtime hardware-decoder statistics; it must not be false. The native
+adapter always requires hardware acceleration. HEVC-specific evidence is in
+Design/vela-hevc-end-to-end-2026-11-04.md; the November 3 record is historical.
+
+Remote detail zoom (no desktop capture or system input injection):
+  swift build -c debug
+  .build/debug/VelaConnect --viewport-test
+The viewport test uses a hidden native window and generated events delivered only
+to the test view. It checks Retina pixel mapping, 400% display sizing, bounded
+Metal drawable resolution, native clip-view panning, input coordinates after
+panning, ordinary scroll forwarding, view-only input blocking, and return to fit.
+It starts no remote host, posts no system events, and does not verify live video
+presentation. Run /zoom-tests.js on the browser fixture after language checks at
+desktop and narrow/mobile sizes. It also checks source-quality feedback, touch
+inspection with remote input paused, authentication continuity, and localization.
+Current acceptance is in Design/vela-remote-zoom-2026-11-04.md.
+
+Remembered browser access:
+- swift test includes persistent hash-only credential, cookie parsing/attributes,
+  expiry, replacement, revocation, and corrupt-registry checks. Isolated TLS tests
+  cover opt-in, strict Origin, bearer-only control APIs, ordinary logout, host
+  restart, explicit forgetting, password/host revocation, account policy, and an
+  in-flight policy-validation/revocation race. No real password or desktop input.
+- After language/session/touch checks, load /remember-tests.js and call
+  runRememberedBrowserChecks(). This uses a boolean fixture flag, not real cookies
+  or credentials. Also verify that enrolling then reloading auto-connects without
+  another password request, and that Forget restores password entry after reload.
+- Mock-browser tests verify client behavior; Swift TLS tests verify real Set-Cookie
+  headers and credential validation. They do not modify OS/browser certificate
+  trust or claim an installed-app test. Current evidence is recorded separately.

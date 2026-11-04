@@ -36,6 +36,8 @@ test('web and native catalogs match, with the same placeholders and English keys
 test('the HTML fallback is English and language selection is available before and after login',()=>{
  const html=fs.readFileSync(path.join(web,'index.html'),'utf8');
  assert.match(html,/<html lang="en">/);assert.doesNotMatch(html,/\p{Script=Han}/u);
- assert.equal((html.match(/data-language/g)||[]).length,2);
+ assert.equal((html.match(/class="language-switch"/g)||[]).length,2);
+ assert.equal((html.match(/button type="button" data-language=/g)||[]).length,4);
+ assert.doesNotMatch(html,/<select[^>]*data-language/);
  assert.ok(html.indexOf('/i18n.js')<html.indexOf('/app.js'));
 });

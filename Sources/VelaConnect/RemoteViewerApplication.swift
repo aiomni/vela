@@ -1,6 +1,8 @@
 import VelaLocalization
 import AppKit
 import Security
+import CoreImage
+import MetalKit
 import WebRTC
 import RemoteCore
 import RemoteRTC
@@ -48,9 +50,20 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
     private let disconnectButton = NSButton(title: L("Disconnect"), target: nil, action: nil)
     private let displayButton = NSPopUpButton()
     private let qualityButton = NSPopUpButton()
+    private let streamPreference = NSPopUpButton()
+    private let zoomButton = NSPopUpButton()
+    private let streamStatus = NSTextField(labelWithString: "")
+    private var streamPresentation: (codec: String, reason: String?, state: String?)?
+    private let losslessButton = NSButton(checkboxWithTitle: L("Lossless text enhancement"), target: nil, action: nil)
+    private var receiverMetrics = DesktopStreamMetrics()
+    private var forceH264 = false
+    private var attemptedHEVC = false
+    private var peerStartedAt = 0.0
+    private var lastDecodedFrames = 0.0
     private let message = NSTextField(wrappingLabelWithString: L("Enter the host Mac's IP:port and the password for its selected authentication method. Mac account authentication accepts only the account running Vela. Touch ID is not supported. An existing connection can show the system lock screen for password entry."))
     private let textField = NSTextField(string: "")
     private let surface = RemoteDesktopSurface()
+    private lazy var viewport = RemoteDesktopViewport(surface: surface)
     private let trustDelegate = CertificateTrust()
     private lazy var http: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
@@ -78,7 +91,7 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1160, height: 800),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = L("Vela Connect")
-        window.minSize = NSSize(width: 760, height: 520)
+        window.minSize = NSSize(width: 760, height: 680)
         window.delegate = self; window.center(); window.isReleasedWhenClosed = false
         let stack = NSStackView()
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
@@ -104,16 +117,40 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
         toolbar.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         displayButton.target = self; displayButton.action = #selector(changeDisplay)
         qualityButton.addItems(withTitles: [L("Smooth · 1080p / 60"), L("Clear · 1440p / 30"), L("Full resolution · Up to 4K")])
+        qualityButton.selectItem(at: 2)
         qualityButton.target = self; qualityButton.action = #selector(changeDisplay)
         let full = NSButton(title: L("Full screen"), target: self, action: #selector(fullscreen))
         let release = NSButton(title: L("Release keys"), target: self, action: #selector(releaseKeys))
         let options = NSStackView(views: [displayButton, qualityButton, full, release, LanguagePicker(), NSView()])
         options.spacing = 8; stack.addArrangedSubview(options)
         options.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        stack.addArrangedSubview(surface)
-        surface.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        surface.heightAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
-        surface.setContentHuggingPriority(.defaultLow, for: .vertical)
+        streamPreference.addItems(withTitles: [L("Automatic"), L("Text clarity"), L("Smooth motion")])
+        let preferences = RemoteStreamPreference.allCases
+        let savedPreference = RemoteStreamPreference(rawValue: UserDefaults.standard.string(forKey: "velaStreamPreference") ?? "") ?? .automatic
+        streamPreference.selectItem(at: preferences.firstIndex(of: savedPreference) ?? 0)
+        streamPreference.target = self; streamPreference.action = #selector(changeStreamPreference)
+        streamPreference.setAccessibilityLabel(L("Streaming preference"))
+        streamStatus.font = .systemFont(ofSize: 11); streamStatus.textColor = .secondaryLabelColor
+        losslessButton.target = self; losslessButton.action = #selector(changeLosslessPreference)
+        let streamRow = NSStackView(views: [streamPreference, losslessButton, streamStatus, NSView()])
+        streamRow.spacing = 8; stack.addArrangedSubview(streamRow)
+        streamRow.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        for (id, title) in [("fit", "Fit window"), ("1", "100% · Pixel for pixel"), ("1.5", "150% · Zoom in"), ("2", "200% · Zoom in"), ("4", "400% · Zoom in")] {
+            zoomButton.addItem(withTitle: L(title)); zoomButton.lastItem?.representedObject = id
+        }
+        zoomButton.setAccessibilityLabel(L("Video size"))
+        zoomButton.target = self; zoomButton.action = #selector(changeZoom)
+        let centerVideo = NSButton(title: L("Center video"), target: self, action: #selector(centerVideo))
+        let zoomHint = NSTextField(labelWithString: L("Option-scroll to pan. Scroll controls the remote Mac."))
+        zoomHint.font = .systemFont(ofSize: 11); zoomHint.textColor = .secondaryLabelColor
+        zoomButton.toolTip = L("Pixel-for-pixel view preserves available detail. Zooming cannot restore detail lost in transmission.")
+        let zoomRow = NSStackView(views: [zoomButton, centerVideo, zoomHint, NSView()])
+        zoomRow.spacing = 8; stack.addArrangedSubview(zoomRow)
+        zoomRow.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        stack.addArrangedSubview(viewport)
+        viewport.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        viewport.heightAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
+        viewport.setContentHuggingPriority(.defaultLow, for: .vertical)
         surface.onInput = { [weak self] input in self?.peer?.sendInput(input) }
         surface.onRelease = { [weak self] in self?.peer?.sendInput(RemoteInput(type: "release")) }
         textField.placeholderString = L("Enter text to send to the remote computer")
@@ -132,8 +169,8 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
             editMenu.addItem(withTitle: title, action: action, keyEquivalent: key)
         }
         editItem.submenu = editMenu; menu.addItem(editItem); NSApp.mainMenu = menu
-        languageObserver = NotificationCenter.default.addObserver(forName: Localization.didChange, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { LocalizationUI.refreshWindows() }
+        languageObserver = NotificationCenter.default.addObserver(forName: Localization.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { LocalizationUI.refreshWindows(); self?.renderStreamStatus() }
         }
         window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
@@ -173,32 +210,50 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
                     displayButton.lastItem?.representedObject = display
                 }
                 UserDefaults.standard.set(raw, forKey: "lastRemoteAddress")
-                retries = 0
+                retries = 0; forceH264 = false
                 try await startPeer()
             } catch { message.stringValue = L(error.localizedDescription) }
         }
     }
     private func startPeer() async throws {
+        do { try await startPeerAttempt() }
+        catch {
+            guard attemptedHEVC, !forceH264 else { throw error }
+            forceH264 = true
+            try await startPeerAttempt()
+        }
+    }
+    private func startPeerAttempt() async throws {
         closePeer()
         let generation = UUID(); connectionGeneration = generation
         guard let displayID = selectedDisplay else { throw RemoteError.message(L("Select a display.")) }
-        let peer = try RemotePeer(sendingVideo: false)
+        let capability = await DesktopHEVC.capability.value
+        attemptedHEVC = capability.available && !forceH264 && losslessButton.state != .on
+        let peer = try RemotePeer(sendingVideo: false, allowHEVC: attemptedHEVC)
+        peerStartedAt = ProcessInfo.processInfo.systemUptime; lastDecodedFrames = 0
+        receiverMetrics = DesktopStreamMetrics()
         self.peer = peer; surface.displayID = displayID
-        peer.onVideo = { [weak self] track in guard let self else { return }; track.add(self.surface.renderer) }
+        peer.onVideo = { [weak self] track in guard let self else { return }; track.add(self.surface.videoSink) }
         peer.onState = { [weak self, weak peer] state in
             guard let self, let peer, self.peer === peer else { return }
-            if state == .connected { self.retries = 0; self.message.stringValue = L("Connected · Click the screen to control · ⌃⌥Esc releases the keyboard") }
+            if state == .connected { self.peerStartedAt = ProcessInfo.processInfo.systemUptime; self.retries = 0; self.message.stringValue = L("Connected · Click the screen to control · ⌃⌥Esc releases the keyboard") }
             if state == .failed || state == .disconnected {
                 self.surface.releaseAll(); self.surface.inputAllowed = false; self.scheduleReconnect()
             }
         }
+        observeLossless(peer, generation: generation)
+        peer.onEnhancement = { [weak self] data in
+            guard let self, self.losslessButton.state == .on else { return }
+            self.surface.lossless.receive(data)
+        }
         let offer = try await peer.makeOffer()
-        let answer = try await object("offer", body: ["sdp": offer, "displayID": displayID, "quality": quality.rawValue])
+        let answer = try await object("offer", body: ["sdp": offer, "displayID": displayID, "quality": quality.rawValue, "stream": try JSONSerialization.jsonObject(with: JSONEncoder().encode(currentStreamFeedback())), "hevc": attemptedHEVC])
         guard connectionGeneration == generation, let sdp = answer["sdp"] as? String, let id = answer["mediaID"] as? String else {
             throw RemoteError.message(L("Connection canceled or invalid response."))
         }
         mediaID = id
         try await peer.accept(answer: sdp)
+        if peer.videoCodec != "H265" { attemptedHEVC = false }
         message.stringValue = L("Establishing a live video connection…")
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in await self?.poll() } }
         await poll()
@@ -220,6 +275,8 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
             surface.inputAllowed = value["inputPermission"] as? Bool == true && peer.connectionState == .connected
             let session = value["session"] as? [String: Any]
             surface.renderer.isHidden = session?["requiresAccountVerification"] as? Bool == true || session?["recovering"] as? Bool == true
+            surface.losslessAllowed = losslessButton.state == .on && ["local", "blackout"].contains(session?["state"] as? String ?? "") && !surface.renderer.isHidden
+            if !surface.losslessAllowed { surface.lossless.reset() }
             if session?["requiresAccountVerification"] as? Bool == true {
                 message.stringValue = L("The current user has left the local console. Return to this account on the host Mac.")
             } else if session?["recovering"] as? Bool == true {
@@ -248,6 +305,24 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
             let candidates = try JSONDecoder().decode([RemoteICECandidate].self, from: data)
             for candidate in candidates.dropFirst(remoteCandidateCount) { try await peer.add(candidate) }
             remoteCandidateCount = candidates.count
+            if let stream = value["stream"] as? [String: Any] {
+                streamPresentation = (value["videoCodec"] as? String ?? "H264", stream["reason"] as? String, stream["state"] as? String)
+                renderStreamStatus()
+            }
+            let statistics = await peer.diagnostics()
+            guard generation == connectionGeneration else { return }
+            let sample = receiverMetrics.sample(statistics)
+            if attemptedHEVC, peer.activeVideoCodec == "H264" { attemptedHEVC = false; forceH264 = true }
+            let decoded = statistics.filter { $0["type"] == "inbound-rtp" && ($0["kind"] == "video" || $0["mediaType"] == "video") }
+                .compactMap { Double($0["framesDecoded"] ?? "") }.max() ?? 0
+            if decoded != lastDecodedFrames || surface.renderer.isHidden {
+                lastDecodedFrames = decoded; peerStartedAt = ProcessInfo.processInfo.systemUptime
+            }
+            if attemptedHEVC, ProcessInfo.processInfo.systemUptime - peerStartedAt > 6 {
+                forceH264 = true; scheduleReconnect(); return
+            }
+            let feedback = currentStreamFeedback(decode: sample.decodeMilliseconds, dropped: sample.droppedFrameRatio)
+            _ = try? await object("stream-feedback", body: ["mediaID": mediaID, "feedback": try JSONSerialization.jsonObject(with: JSONEncoder().encode(feedback))])
         } catch { message.stringValue = L(error.localizedDescription); scheduleReconnect() }
     }
     private func scheduleReconnect() {
@@ -282,9 +357,11 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
     }
     private func closePeer() {
         connectionGeneration = UUID()
+        streamPresentation = nil; renderStreamStatus()
         surface.releaseAll(); surface.inputAllowed = false
         timer?.invalidate(); timer = nil
-        peer?.remoteVideo?.remove(surface.renderer)
+        peer?.remoteVideo?.remove(surface.videoSink)
+        surface.resetVideoSession(); surface.losslessAllowed = false
         peer?.close(); peer = nil; mediaID = nil
         localCandidateCount = 0; remoteCandidateCount = 0
         surface.renderer.renderFrame(nil)
@@ -306,6 +383,56 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
             } catch { message.stringValue = L(error.localizedDescription) }
         }
     }
+    private func renderStreamStatus() {
+        guard let presentation = streamPresentation else { streamStatus.stringValue = ""; return }
+        let label: String
+        switch presentation.reason {
+        case "network": label = L("Network limited · Reducing workload")
+        case "device": label = L("Device limited · Reducing workload")
+        case "recovering": label = L("Recovering stream quality")
+        default:
+            label = presentation.state == "refining" ? L("Restoring text detail") :
+                presentation.state == "idle" ? L("Static desktop · Saving bandwidth") : L("Adaptive streaming")
+        }
+        streamStatus.stringValue = L("{0} · {1}", presentation.codec, label)
+    }
+    private func currentStreamFeedback(decode: Double? = nil, dropped: Double? = nil) -> RemoteStreamFeedback {
+        let scale = surface.window?.backingScaleFactor ?? 1
+        return RemoteStreamFeedback(preference: RemoteStreamPreference.allCases[max(0, streamPreference.indexOfSelectedItem)], lossless: losslessButton.state == .on,
+            viewportWidth: viewport.zoom == nil ? max(1, min(16384, Int(viewport.bounds.width * scale))) : nil,
+            viewportHeight: viewport.zoom == nil ? max(1, min(16384, Int(viewport.bounds.height * scale))) : nil,
+            decodeMilliseconds: decode, droppedFrameRatio: dropped)
+    }
+    @objc private func changeZoom() {
+        surface.releaseAll()
+        viewport.setZoom(Double(zoomButton.selectedItem?.representedObject as? String ?? "fit"))
+        changeStreamPreference()
+    }
+    @objc private func centerVideo() { surface.releaseAll(); viewport.centerVideo() }
+    private func observeLossless(_ peer: RemotePeer, generation: UUID) {
+        guard losslessButton.state == .on else { peer.frameIdentity.observe(nil); return }
+        peer.frameIdentity.observe { [weak self, weak peer] marker in
+            Task { @MainActor in
+                guard let self, let peer, self.peer === peer, self.connectionGeneration == generation else { return }
+                self.surface.lossless.marker(marker)
+            }
+        }
+    }
+    @objc private func changeLosslessPreference() {
+        surface.lossless.reset()
+        if let peer { observeLossless(peer, generation: connectionGeneration) }
+        if losslessButton.state == .on && attemptedHEVC { scheduleReconnect() }
+        else if losslessButton.state == .off && !forceH264 {
+            Task { if await DesktopHEVC.capability.value.available { self.scheduleReconnect() } }
+        }
+        changeStreamPreference()
+    }
+    @objc private func changeStreamPreference() {
+        let feedback = currentStreamFeedback()
+        UserDefaults.standard.set(feedback.preference?.rawValue, forKey: "velaStreamPreference")
+        guard let mediaID else { return }
+        Task { _ = try? await object("stream-feedback", body: ["mediaID": mediaID, "feedback": try JSONSerialization.jsonObject(with: JSONEncoder().encode(feedback))]) }
+    }
     @objc private func sendText() {
         guard !textField.stringValue.isEmpty, surface.inputAllowed else { return }
         var input = RemoteInput(type: "text"); input.text = textField.stringValue
@@ -323,10 +450,146 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
 }
 
 @MainActor
+private final class RemoteDesktopViewport: NSView {
+    private let scrollView = VelaScrollView(frame: .zero)
+    private let surface: RemoteDesktopSurface
+    private(set) var zoom: Double?
+    init(surface: RemoteDesktopSurface) {
+        self.surface = surface
+        super.init(frame: .zero)
+        scrollView.hasVerticalScroller = true; scrollView.hasHorizontalScroller = true
+        scrollView.drawsBackground = true; scrollView.backgroundColor = .black
+        scrollView.documentView = surface; addSubview(scrollView)
+        surface.onVideoSizeChange = { [weak self] in self?.updateDocument() }
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func layout() {
+        super.layout()
+        scrollView.frame = bounds
+        updateDocument()
+    }
+    override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); updateDocument() }
+    func setZoom(_ value: Double?) {
+        let center = visibleVideoCenter()
+        zoom = value.map { min(4, max(0.25, $0)) }
+        updateDocument(center: center)
+    }
+    private func visibleVideoCenter() -> NSPoint {
+        let visible = scrollView.contentView.bounds, video = surface.renderer.frame
+        guard video.width > 0, video.height > 0 else { return NSPoint(x: 0.5, y: 0.5) }
+        return NSPoint(x: (visible.midX - video.minX) / video.width, y: (visible.midY - video.minY) / video.height)
+    }
+    private func updateDocument(center: NSPoint? = nil) {
+        let center = center ?? visibleVideoCenter(), visible = scrollView.contentView.bounds.size
+        guard visible.width > 0, visible.height > 0 else { return }
+        surface.zoom = zoom
+        let size = surface.displaySize(in: visible)
+        surface.setFrameSize(NSSize(width: max(visible.width, size.width), height: max(visible.height, size.height)))
+        surface.needsLayout = true; surface.layoutSubtreeIfNeeded()
+        let video = surface.renderer.frame
+        let origin = NSPoint(x: video.minX + center.x * video.width - visible.width / 2,
+                             y: video.minY + center.y * video.height - visible.height / 2)
+        scrollView.contentView.scroll(to: NSPoint(x: min(max(0, origin.x), max(0, surface.bounds.width - visible.width)),
+                                                 y: min(max(0, origin.y), max(0, surface.bounds.height - visible.height))))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+    func centerVideo() { updateDocument(center: NSPoint(x: 0.5, y: 0.5)) }
+    static func runChecks() -> Bool {
+        let viewport = RemoteDesktopViewport(surface: RemoteDesktopSurface())
+        // Use the viewport's document view so input checks exercise the actual scrolled hierarchy.
+        let document = viewport.surface
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500), styleMask: [], backing: .buffered, defer: false)
+        window.contentView = viewport
+        document.updateVideoSize(NSSize(width: 3840, height: 2160))
+        document.renderer.setSize(NSSize(width: 3840, height: 2160))
+        viewport.needsLayout = true; viewport.layoutSubtreeIfNeeded()
+        var passed = true, count = 0
+        func check(_ value: Bool, _ label: String) {
+            count += 1; if !value { passed = false }
+            print("\(value ? "PASS" : "FAIL"): \(label)")
+        }
+        check(document.frame.width <= 800 && document.frame.height <= 500, "Fit view stays within the viewport")
+        viewport.setZoom(1)
+        check(abs(document.renderer.frame.width * window.backingScaleFactor - 3840) < 1, "100 percent maps one source pixel to one backing pixel")
+        viewport.setZoom(4)
+        check(abs(document.renderer.frame.width * window.backingScaleFactor - 15360) < 1, "400 percent enlarges the source in both dimensions")
+        let targets = document.renderer.subviews.compactMap { $0 as? MTKView }
+        check(!targets.isEmpty && targets.allSatisfy { !$0.autoResizeDrawable && $0.drawableSize.width <= 3840 && $0.drawableSize.height <= 2160 }, "Zoom keeps Metal drawables at source resolution")
+        viewport.centerVideo()
+        check(abs(viewport.scrollView.contentView.bounds.midX - document.renderer.frame.midX) < 1, "Center action centers enlarged video")
+        viewport.scrollView.contentView.scroll(to: .zero)
+        let point = NSPoint(x: 100, y: 100)
+        let location = document.convert(point, to: nil)
+        var inputs: [RemoteInput] = []
+        document.inputAllowed = true; document.displayID = 42; document.onInput = { inputs.append($0) }
+        if let event = NSEvent.mouseEvent(with: .leftMouseDown, location: location, modifierFlags: [], timestamp: 0,
+                                         windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+            document.mouseDown(with: event)
+        }
+        let click = inputs.last
+        check(click?.type == "pointer" && click?.displayID == 42 && abs((click?.x ?? -1) - Double(100 / document.renderer.frame.width)) < 0.001 && abs((click?.y ?? -1) - Double(100 / document.renderer.frame.height)) < 0.001, "Panned zoom maps clicks to the source without injecting system input")
+        if let wheel = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 30, wheel2: 20, wheel3: 0),
+           let event = NSEvent(cgEvent: wheel) {
+            inputs.removeAll(); document.scrollWheel(with: event)
+            check(inputs.last?.type == "scroll", "Ordinary scrolling still controls the remote desktop")
+            wheel.flags = .maskAlternate
+            if let pan = NSEvent(cgEvent: wheel) {
+                viewport.centerVideo()
+                let origin = viewport.scrollView.contentView.bounds.origin
+                inputs.removeAll(); document.scrollWheel(with: pan)
+                check(inputs.isEmpty, "Option scrolling stays local")
+                check(viewport.scrollView.contentView.bounds.origin != origin, "Option scrolling pans the actual native clip view")
+            }
+        } else { check(false, "Synthetic scroll event creation") }
+        document.inputAllowed = false; inputs.removeAll()
+        if let event = NSEvent.mouseEvent(with: .leftMouseDown, location: location, modifierFlags: [], timestamp: 0,
+                                         windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1) {
+            document.mouseDown(with: event)
+        }
+        check(inputs.isEmpty, "View-only input remains blocked when zoomed")
+        viewport.setZoom(nil)
+        check(viewport.scrollView.contentView.bounds.origin == .zero, "Returning to fit clears local panning")
+        print("Viewport checks: \(count), result: \(passed ? "PASS" : "FAIL")")
+        return passed
+    }
+}
+
+@MainActor
+private final class DesktopVideoView: RTCMTLNSVideoView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // RTC sets drawableSize from source frames through its public setSize method.
+        // Display zoom must not allocate a 400-percent-resolution Metal drawable.
+        for case let target as MTKView in subviews { target.autoResizeDrawable = false }
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
+@MainActor
 private final class RemoteDesktopSurface: NSView, RTCVideoViewDelegate {
-    let renderer = RTCMTLNSVideoView(frame: .zero)
+    let renderer = DesktopVideoView(frame: .zero)
+    let lossless = DesktopLosslessReceiver()
+    private let enhancement = LosslessTileView()
+    var losslessAllowed = false { didSet { videoSink.setIdentityEnabled(losslessAllowed); if !losslessAllowed { enhancement.isHidden = true } } }
+    private var videoGeneration = UUID()
+    private var decodedFrame: DesktopDecodedFrame?
+    private lazy var losslessContext = CIContext(options: [.cacheIntermediates: false])
+    private(set) lazy var videoSink = makeVideoSink()
+    private func makeVideoSink() -> DesktopIdentityRenderer {
+        let generation = videoGeneration
+        return DesktopIdentityRenderer(target: renderer) { [weak self] frame in
+            Task { @MainActor in
+                guard let self, self.videoGeneration == generation else { return }
+                self.decodedFrame = frame
+                self.lossless.present(timestamp: frame.timestamp, width: frame.width, height: frame.height)
+            }
+        }
+    }
+    func resetVideoSession() { videoGeneration = UUID(); videoSink = makeVideoSink(); decodedFrame = nil; lossless.reset() }
     var onInput: ((RemoteInput) -> Void)?
     var onRelease: (() -> Void)?
+    var onVideoSizeChange: (() -> Void)?
+    var zoom: Double?
     var displayID: UInt32?
     var inputAllowed = false
     private var videoSize = NSSize(width: 16, height: 9)
@@ -339,17 +602,39 @@ private final class RemoteDesktopSurface: NSView, RTCVideoViewDelegate {
         super.init(frame: frameRect)
         wantsLayer = true; layer?.backgroundColor = NSColor.black.cgColor; layer?.cornerRadius = 8
         addSubview(renderer); renderer.delegate = self
+        addSubview(enhancement); enhancement.isHidden = true
+        lossless.onChange = { [weak self] tiles, width, height in
+            guard let self else { return }
+            self.enhancement.tiles = tiles; self.enhancement.pixelSize = NSSize(width: width, height: height)
+            self.enhancement.baseImage = nil
+            if self.losslessAllowed, !tiles.isEmpty, let frame = self.decodedFrame, frame.width == width, frame.height == height, let pixels = frame.pixels {
+                // Composite over this exact decoded frame instead of the independently scheduled Metal surface.
+                self.enhancement.baseImage = self.losslessContext.createCGImage(CIImage(cvPixelBuffer: pixels),
+                    from: CGRect(x: 0, y: 0, width: width, height: height))
+            }
+            self.enhancement.isHidden = self.enhancement.baseImage == nil
+            self.enhancement.needsDisplay = true
+        }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func hitTest(_ point: NSPoint) -> NSView? { bounds.contains(convert(point, from: superview)) ? self : nil }
     override func layout() {
         super.layout()
-        let scale = min(bounds.width / max(1, videoSize.width), bounds.height / max(1, videoSize.height))
-        let width = videoSize.width * scale, height = videoSize.height * scale
-        renderer.frame = NSRect(x: (bounds.width - width) / 2, y: (bounds.height - height) / 2, width: width, height: height)
+        let size = displaySize(in: bounds.size)
+        renderer.frame = NSRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
+        enhancement.frame = renderer.frame
+    }
+    func displaySize(in available: NSSize) -> NSSize {
+        let scale = zoom.map { CGFloat($0) / max(1, window?.backingScaleFactor ?? 1) } ??
+            min(available.width / max(1, videoSize.width), available.height / max(1, videoSize.height))
+        return NSSize(width: videoSize.width * scale, height: videoSize.height * scale)
     }
     nonisolated func videoView(_ videoView: RTCVideoRenderer, didChangeVideoSize size: CGSize) {
-        Task { @MainActor [weak self] in self?.videoSize = size; self?.needsLayout = true }
+        Task { @MainActor [weak self] in self?.updateVideoSize(size) }
+    }
+    func updateVideoSize(_ size: CGSize) {
+        guard size.width > 0, size.height > 0, size.width.isFinite, size.height.isFinite else { return }
+        videoSize = size; onVideoSizeChange?()
     }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -368,6 +653,7 @@ private final class RemoteDesktopSurface: NSView, RTCVideoViewDelegate {
     private func pointer(_ event: NSEvent, action: String) {
         guard inputAllowed, renderer.frame.width > 0, renderer.frame.height > 0 else { return }
         let point = convert(event.locationInWindow, from: nil)
+        guard action != "down" || renderer.frame.contains(point) else { return }
         if action == "down" { window?.makeFirstResponder(self) }
         var input = RemoteInput(type: "pointer")
         input.action = action; input.displayID = displayID
@@ -388,6 +674,15 @@ private final class RemoteDesktopSurface: NSView, RTCVideoViewDelegate {
     override func rightMouseDragged(with event: NSEvent) { pointer(event, action: "move") }
     override func otherMouseDragged(with event: NSEvent) { pointer(event, action: "move") }
     override func scrollWheel(with event: NSEvent) {
+        if event.modifierFlags.contains(.option) {
+            releaseAll()
+            guard let scrollView = enclosingScrollView else { return }
+            let clip = scrollView.contentView, scale = event.hasPreciseScrollingDeltas ? 1.0 : 16.0
+            let origin = NSPoint(x: min(max(0, clip.bounds.minX - event.scrollingDeltaX * scale), max(0, bounds.width - clip.bounds.width)),
+                                 y: min(max(0, clip.bounds.minY - event.scrollingDeltaY * scale), max(0, bounds.height - clip.bounds.height)))
+            clip.scroll(to: origin); scrollView.reflectScrolledClipView(clip)
+            return
+        }
         guard inputAllowed else { return }
         var input = RemoteInput(type: "scroll")
         let scale = event.hasPreciseScrollingDeltas ? 1.0 : 16.0
@@ -420,4 +715,27 @@ private final class RemoteDesktopSurface: NSView, RTCVideoViewDelegate {
     }
     override func resignFirstResponder() -> Bool { releaseAll(); return super.resignFirstResponder() }
     func releaseAll() { onRelease?(); modifiers = [] }
+}
+
+@MainActor
+func runRemoteViewportChecks() -> Bool { RemoteDesktopViewport.runChecks() }
+
+@MainActor
+private final class LosslessTileView: NSView {
+    var tiles: [DesktopLosslessTile] = []
+    var baseImage: CGImage?
+    var pixelSize = NSSize.zero
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) {
+        NSGraphicsContext.current?.cgContext.clear(bounds)
+        guard pixelSize.width > 0, pixelSize.height > 0, let baseImage else { return }
+        NSImage(cgImage: baseImage, size: .zero).draw(in: bounds, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
+        let sx = bounds.width / pixelSize.width, sy = bounds.height / pixelSize.height
+        for tile in tiles {
+            let rect = NSRect(x: CGFloat(tile.x) * sx, y: CGFloat(tile.y) * sy,
+                width: CGFloat(tile.image.width) * sx, height: CGFloat(tile.image.height) * sy)
+            NSImage(cgImage: tile.image, size: .zero).draw(in: rect, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
+        }
+    }
 }

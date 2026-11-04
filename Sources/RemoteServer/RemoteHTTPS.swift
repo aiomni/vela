@@ -14,13 +14,15 @@ public struct RemoteRequest: Sendable {
     public let contentType: String?
     public let body: Data
     public let address: String
+    public var cookie: String? = nil
 }
 public struct RemoteResponse: Sendable {
     public var status: Int
     public var body: Data
     public var contentType: String
-    public init(status: Int = 200, body: Data, contentType: String = "application/json; charset=utf-8") {
-        self.status = status; self.body = body; self.contentType = contentType
+    public var setCookie: String?
+    public init(status: Int = 200, body: Data, contentType: String = "application/json; charset=utf-8", setCookie: String? = nil) {
+        self.status = status; self.body = body; self.contentType = contentType; self.setCookie = setCookie
     }
     public static func json<T: Encodable>(_ value: T, status: Int = 200) -> Self {
         .init(status: status, body: (try? JSONEncoder().encode(value)) ?? Data("{}".utf8))
@@ -73,7 +75,8 @@ private final class RequestHandler: ChannelInboundHandler {
             guard self.head == nil, head.uri.utf8.count <= 2048,
                   head.headers["host"].count == 1,
                   head.headers["origin"].count <= 1,
-                  head.headers["authorization"].count <= 1 else {
+                  head.headers["authorization"].count <= 1,
+                  head.headers["cookie"].count <= 1 else {
                 respond(.error("Invalid request.", status: 400), context: context); return
             }
             self.head = head
@@ -88,7 +91,7 @@ private final class RequestHandler: ChannelInboundHandler {
             let request = RemoteRequest(method: head.method.rawValue, path: head.uri,
                 host: head.headers.first(name: "Host") ?? "", origin: head.headers.first(name: "Origin"),
                 authorization: head.headers.first(name: "Authorization"), contentType: head.headers.first(name: "Content-Type"),
-                body: body, address: context.remoteAddress?.ipAddress ?? "unknown")
+                body: body, address: context.remoteAddress?.ipAddress ?? "unknown", cookie: head.headers.first(name: "Cookie"))
             let eventLoop = context.eventLoop
             let contextBox = NIOLoopBound(context, eventLoop: eventLoop)
             let handlerBox = NIOLoopBound(self, eventLoop: eventLoop)
@@ -102,12 +105,13 @@ private final class RequestHandler: ChannelInboundHandler {
     private func respond(_ response: RemoteResponse, context: ChannelHandlerContext) {
         responding = true
         guard context.channel.isActive else { return }
-        let headers = HTTPHeaders([
+        var headers = HTTPHeaders([
             ("Content-Type", response.contentType), ("Content-Length", String(response.body.count)),
             ("Connection", "close"), ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
             ("X-Frame-Options", "DENY"), ("Referrer-Policy", "no-referrer"),
-            ("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+            ("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; worker-src 'self'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
         ])
+        if let cookie = response.setCookie { headers.add(name: "Set-Cookie", value: cookie) }
         context.write(wrapOutboundOut(.head(HTTPResponseHead(version: .http1_1,
             status: HTTPResponseStatus(statusCode: response.status), headers: headers))), promise: nil)
         var buffer = context.channel.allocator.buffer(capacity: response.body.count)

@@ -63,6 +63,7 @@ final class RemoteSettingsController: NSObject {
         permissionButton.target = self; permissionButton.action = #selector(requestPermissions)
         permissionButton.setAccessibilityLabel(L("Open remote control permission settings"))
         disconnectButton.target = self; disconnectButton.action = #selector(disconnect)
+        disconnectButton.toolTip = L("Also revokes remembered browser access.")
         let copy = NSButton(title: L("Copy address"), target: self, action: #selector(copyAddress))
         let browser = NSButton(title: L("Connect in browser"), target: self, action: #selector(openBrowser))
         let viewer = NSButton(title: L("Open Vela Connect…"), target: self, action: #selector(openViewer))

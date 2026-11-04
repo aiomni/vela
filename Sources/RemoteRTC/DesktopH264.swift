@@ -26,15 +26,32 @@ enum DesktopH264 {
     }
 }
 final class DesktopEncoderFactory: NSObject, RTCVideoEncoderFactory {
-    func supportedCodecs() -> [RTCVideoCodecInfo] { DesktopH264.codecs }
+    let hevc: Bool
+    let identity: DesktopFrameIdentity?
+    init(hevc: Bool = false, identity: DesktopFrameIdentity? = nil) { self.hevc = hevc; self.identity = identity }
+    func supportedCodecs() -> [RTCVideoCodecInfo] {
+        (hevc ? [DesktopHEVCFormat.info] : []) + DesktopH264.codecs
+    }
     func createEncoder(_ info: RTCVideoCodecInfo) -> RTCVideoEncoder? {
+        if hevc && info.name.uppercased() == "H265" { return DesktopHEVCFormat.accepts(info) ? DesktopHEVCEncoder(info: info) : nil }
         guard info.name == "H264" else { return nil }
-        return RTCVideoEncoderH264(codecInfo: info)
+        let encoder = RTCVideoEncoderH264(codecInfo: info)
+        return identity.map { DesktopTrackedEncoder(encoder, identity: $0) } ?? encoder
     }
 }
 final class DesktopDecoderFactory: NSObject, RTCVideoDecoderFactory {
-    func supportedCodecs() -> [RTCVideoCodecInfo] { DesktopH264.codecs }
-    func createDecoder(_ info: RTCVideoCodecInfo) -> RTCVideoDecoder? { info.name == "H264" ? RTCVideoDecoderH264() : nil }
+    let hevc: Bool
+    let identity: DesktopFrameIdentity?
+    init(hevc: Bool = false, identity: DesktopFrameIdentity? = nil) { self.hevc = hevc; self.identity = identity }
+    func supportedCodecs() -> [RTCVideoCodecInfo] {
+        (hevc ? [DesktopHEVCFormat.info] : []) + DesktopH264.codecs
+    }
+    func createDecoder(_ info: RTCVideoCodecInfo) -> RTCVideoDecoder? {
+        if hevc && info.name.uppercased() == "H265" { return DesktopHEVCFormat.accepts(info) ? DesktopHEVCDecoder() : nil }
+        guard info.name == "H264" else { return nil }
+        let decoder = RTCVideoDecoderH264()
+        return identity.map { DesktopTrackedDecoder(decoder, identity: $0) } ?? decoder
+    }
 }
 
 public struct H264CaptureLimit: Sendable {
@@ -50,6 +67,23 @@ public struct H264CaptureLimit: Sendable {
         case 32: frameMacroblocks = 5120; macroblocksPerSecond = 216000
         default: frameMacroblocks = 3600; macroblocksPerSecond = 108000
         }
+    }
+    /// Conservative macroblock equivalents of the HEVC main-tier luma limits.
+    public init(hevcLevel: Int) {
+        let limits: (Int, Int)
+        switch hevcLevel {
+        case 156...: limits = (8912896, 1069547520)
+        case 153: limits = (8912896, 534773760)
+        case 150: limits = (8912896, 267386880)
+        case 123: limits = (2228224, 133693440)
+        case 120: limits = (2228224, 66846720)
+        case 93: limits = (983040, 33177600)
+        case 90: limits = (552960, 16588800)
+        case 63: limits = (245760, 7372800)
+        case 60: limits = (122880, 3686400)
+        default: limits = (36864, 552960)
+        }
+        frameMacroblocks = limits.0 / 256; macroblocksPerSecond = limits.1 / 256
     }
     public func dimensions(width: Int, height: Int, quality: DesktopQuality) -> (width: Int, height: Int, fps: Int) {
         let landscape = width >= height

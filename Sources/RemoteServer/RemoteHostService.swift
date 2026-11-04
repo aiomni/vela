@@ -23,9 +23,21 @@ public final class RemoteHostService {
     private var virtualDisplay: VirtualDisplay?
     private var preVirtualIdentity: DesktopDisplayIdentity?
     private var selectedQuality: DesktopQuality = .native
+    private let losslessSender = DesktopLosslessSender()
+    private var qualityController = DesktopQualityController()
+    private var streamMetrics = DesktopStreamMetrics()
+    private var streamDecision: DesktopStreamDecision?
+    private var streamSample = DesktopStreamSample()
+    private var lastStreamCodec: String?
+    private var streamFeedback: RemoteStreamFeedback?
+    private var feedbackReceivedAt = -Double.infinity
+    private var lastQualityUpdate = -Double.infinity
+    private var streamUpdateInFlight = false
     private let input = DesktopInput()
     private var sessions = SessionRegistry()
     private var rateLimiter = LoginRateLimiter()
+    private var browserRateLimiter = LoginRateLimiter()
+    private var rememberedSessions: [String: String] = [:]
     private var loginInFlight = 0
     private var authenticationEpoch = UUID()
     private let authenticator: RemoteAuthenticator
@@ -98,6 +110,7 @@ public final class RemoteHostService {
                 configuration.disconnectGeneration = next.disconnectGeneration
                 await disconnect()
                 sessions.revokeAll()
+                rememberedSessions.removeAll()
             }
             configuration.batteryFloor = next.batteryFloor
             status.screenPermission = CGPreflightScreenCaptureAccess()
@@ -120,6 +133,7 @@ public final class RemoteHostService {
                     status.message = "The access session has expired. Enter the password again."
                 } else {
                     await rebuildCaptureIfNeeded()
+                    await updateStreamQuality()
                     input.enabled = status.inputPermission && inputReady && peer?.connectionState == .connected
                 }
             }
@@ -127,6 +141,7 @@ public final class RemoteHostService {
             if peer == nil, consoleActivityAssertion != nil, now - lastConsoleActivity >= 10 { releaseConsoleActivity() }
             if safetyReason() != nil { releasePower() }
             sessions.expire(now: now)
+            rememberedSessions = rememberedSessions.filter { sessions.validate($0.value, now: now, touch: false) }
         } catch {
             await shutdown()
             loaded = false
@@ -166,6 +181,7 @@ public final class RemoteHostService {
         let oldServer = server; server = nil
         await disconnect()
         sessions.revokeAll()
+        rememberedSessions.removeAll()
         releasePower(); lastDisconnected = nil
         await oldServer?.stop()
         status.state = "stopped"; status.message = "Remote control is off"; status.addresses = []
@@ -174,6 +190,10 @@ public final class RemoteHostService {
         if peer != nil { record("media-disconnect", ["preserveVirtual": String(preserveVirtualDisplay)]) }
         input.enabled = false
         controller = nil; mediaID = nil
+        losslessSender.stop()
+        qualityController.reset(); streamMetrics = DesktopStreamMetrics(); streamDecision = nil
+        streamFeedback = nil; feedbackReceivedAt = -.infinity; lastQualityUpdate = -.infinity
+        streamSample = DesktopStreamSample(); lastStreamCodec = nil
         let oldPeer = peer; peer = nil
         oldPeer?.close()
         let restored = await blackout.restore()
@@ -204,6 +224,9 @@ public final class RemoteHostService {
         input.destination = current.locked ? .lockScreen : .desktop
         guard current != desktopSession else { return }
         desktopSession = current
+        losslessSender.stop()
+        streamFeedback = nil; feedbackReceivedAt = -.infinity; streamDecision = nil
+        qualityController.reset(); streamMetrics = DesktopStreamMetrics()
         record("desktop-session", ["state": current.state, "onConsole": String(current.onConsole),
                                    "locked": String(current.locked)])
         input.enabled = false
@@ -256,6 +279,50 @@ public final class RemoteHostService {
             }
         }
     }
+    private func updateStreamQuality() async {
+        guard !streamUpdateInFlight, now - lastQualityUpdate >= 0.9, !operationInFlight,
+              !needsCaptureRebuild, !rebuildingCapture, consoleAvailable, !suspended,
+              let peer, peer.connectionState == .connected, capture.baseDimensions != nil else { return }
+        streamUpdateInFlight = true
+        defer { streamUpdateInFlight = false }
+        lastQualityUpdate = now
+        let session = desktopSession
+        let statistics = await peer.diagnostics()
+        guard self.peer === peer, session == desktopSession, !operationInFlight, !needsCaptureRebuild else { return }
+        if lastStreamCodec != peer.videoCodec {
+            lastStreamCodec = peer.videoCodec
+            capture.selectQuality(selectedQuality, limit: peer.captureLimit)
+            qualityController.reset()
+            if let preference = streamFeedback?.preference { qualityController.setPreference(preference) }
+        }
+        guard let base = capture.baseDimensions else { return }
+        var sample = streamMetrics.sample(statistics)
+        let feedback = now - feedbackReceivedAt <= 5 ? streamFeedback : nil
+        sample.decodeMilliseconds = feedback?.decodeMilliseconds
+        sample.droppedFrameRatio = feedback?.droppedFrameRatio
+        streamSample = sample
+        let diagnostics = capture.diagnostics
+        let age = now - Double(diagnostics["lastContentChangeMilliseconds"] ?? 0) / 1000
+        let next = qualityController.update(now: now, sample: sample, moving: age < 0.35,
+            baseWidth: base.width, baseHeight: base.height, baseFPS: base.fps, maximumBitrate: selectedQuality.bitrate,
+            viewportWidth: feedback?.viewportWidth, viewportHeight: feedback?.viewportHeight,
+            refining: (0.35...1.35).contains(age))
+        do {
+            let bandwidth = sample.availableBitrate ?? 0
+            let lossless = feedback?.lossless == true && peer.videoCodec == "H264" && sessionActive && peer.enhancementReady &&
+                next.state != "limited" && bandwidth.isFinite && bandwidth >= 3_000_000
+            try await capture.apply(next, lossless: lossless)
+            guard self.peer === peer, session == desktopSession, session == DesktopSessionSnapshot.current() else { return }
+            losslessSender.update(capture: capture, peer: peer, enabled: lossless,
+                                  availableBitrate: sample.availableBitrate)
+            peer.configureBitrate(maximum: next.maximumBitrate, fps: next.fps)
+            streamDecision = next
+        } catch {
+            // A transient configuration failure must not disconnect a working controller.
+            record("stream-configuration-failed")
+        }
+    }
+
     private func prepareConsoleCapture() async {
         guard consoleAvailable, peer != nil, !blackout.isActive,
               desktopSession.locked || CGDisplayIsAsleep(CGMainDisplayID()) != 0 || DesktopCapture.displayMetadata().isEmpty else { return }
@@ -402,6 +469,11 @@ public final class RemoteHostService {
                           "generation": configuration.generation])
         }
         if request.path == "/api/login", request.method == "POST" { return await login(request) }
+        if request.method == "POST", ["/api/device/resume", "/api/device/forget"].contains(request.path) {
+            guard request.origin == "https://\(request.host)" else { return .error("Invalid request origin.", status: 403) }
+            if request.path == "/api/device/resume" { return await resumeBrowser(request) }
+            return await forgetBrowser(request)
+        }
         guard let authorization = request.authorization, authorization.hasPrefix("Bearer ") else {
             return .error("Enter the access password.", status: 401)
         }
@@ -411,7 +483,21 @@ public final class RemoteHostService {
             switch (request.method, request.path) {
             case ("GET", "/api/diagnostics"):
                 guard controller == token, let peer else { return .error("No active connection.", status: 409) }
-                return .json(await peer.diagnostics())
+                let statistics = await peer.diagnostics()
+                guard self.peer === peer, controller == token else { return .error("The connection is no longer valid.", status: 409) }
+                return .json(statistics)
+            case ("GET", "/api/stream-capabilities"):
+                return .json(await DesktopHEVC.capability.value.diagnostics)
+            case ("POST", "/api/stream-feedback"):
+                struct Payload: Decodable { let mediaID: String; let feedback: RemoteStreamFeedback }
+                let payload = try JSONDecoder().decode(Payload.self, from: request.body)
+                guard controller == token, mediaID == payload.mediaID, peer != nil else {
+                    return .error("The connection is no longer valid.", status: 409)
+                }
+                guard payload.feedback.isValid else { return .error("Invalid streaming feedback.", status: 400) }
+                streamFeedback = payload.feedback; feedbackReceivedAt = now
+                if let preference = payload.feedback.preference { qualityController.setPreference(preference) }
+                return .json(["ok": true])
             case ("GET", "/api/displays"):
                 guard CGPreflightScreenCaptureAccess() else { return .error("Grant Vela Screen Recording access on the host Mac. If already granted, quit and reopen Vela.", status: 403) }
                 return .json(try await displaysForConnection(token: token))
@@ -440,6 +526,9 @@ public final class RemoteHostService {
                     let candidates: [RemoteICECandidate]; let mediaID: String?; let connected: Bool
                     let inputPermission: Bool; let message: String; let displayID: UInt32?
                     let capture: [String: Int]
+                    let stream: DesktopStreamDecision?
+                    let streamMetrics: DesktopStreamSample?
+                    let videoCodec: String?
                     let input: [String: Int]
                     let session: SessionInfo
                     let displays: [RemoteDisplay]
@@ -449,7 +538,7 @@ public final class RemoteHostService {
                     mediaID: controller == token ? mediaID : nil, connected: status.connected,
                     inputPermission: CGPreflightPostEventAccess() && inputReady, message: status.message,
                     displayID: controller == token ? (capture.displayID ?? selectedDisplayID) : nil,
-                    capture: controller == token ? capture.diagnostics : [:], input: controller == token ? input.diagnostics : [:],
+                    capture: controller == token ? capture.diagnostics : [:], stream: controller == token ? streamDecision : nil, streamMetrics: controller == token ? streamSample : nil, videoCodec: controller == token ? peer?.videoCodec : nil, input: controller == token ? input.diagnostics : [:],
                     session: sessionInfo, displays: describeDisplays(DesktopCapture.displayMetadata())))
             case ("POST", "/api/offer"):
                 return await connect(request.body, token: token)
@@ -481,7 +570,19 @@ public final class RemoteHostService {
                 if desktopSession.locked { lockDisplayIdentity = DesktopDisplayIdentity(displayID: payload.displayID) }
                 else { selectedIdentity = DesktopDisplayIdentity(displayID: payload.displayID) }
                 selectedDisplayID = payload.displayID; selectedQuality = payload.quality
-                try await capture.start(source: source, displayID: payload.displayID, quality: payload.quality, limit: peer.captureLimit)
+                losslessSender.stop()
+                qualityController.reset(); streamMetrics = DesktopStreamMetrics(); streamDecision = nil
+                if let preference = streamFeedback?.preference { qualityController.setPreference(preference) }
+                if capture.displayID == payload.displayID, capture.isRunning {
+                    capture.selectQuality(payload.quality, limit: peer.captureLimit)
+                    if let base = capture.baseDimensions {
+                        let decision = qualityController.update(now: now, sample: DesktopStreamSample(), moving: true,
+                            baseWidth: base.width, baseHeight: base.height, baseFPS: base.fps, maximumBitrate: payload.quality.bitrate)
+                        try await capture.apply(decision)
+                    }
+                } else {
+                    try await capture.start(source: source, displayID: payload.displayID, quality: payload.quality, limit: peer.captureLimit)
+                }
                 try await capture.waitForFirstFrame()
                 guard self.peer === peer else { await capture.stop(); return .error("Connection ended.", status: 409) }
                 input.displayID = payload.displayID
@@ -498,9 +599,12 @@ public final class RemoteHostService {
     }
 
     private func login(_ request: RemoteRequest) async -> RemoteResponse {
-        struct Credentials: Decodable { let password: String; let mode: String?; let generation: String? }
+        struct Credentials: Decodable { let password: String; let mode: String?; let generation: String?; let rememberDevice: Bool? }
         guard let credentials = try? JSONDecoder().decode(Credentials.self, from: request.body), credentials.password.utf8.count <= 1024 else {
             return .error("Invalid login request.", status: 400)
+        }
+        if credentials.rememberDevice == true, request.origin != "https://\(request.host)" {
+            return .error("Invalid request origin.", status: 403)
         }
         // A system account has one failure budget across all source IPs; do not fan out guesses.
         let rateLimitKey = configuration.authenticationMode == .macOSAccount ? "system-account" : request.address
@@ -525,13 +629,107 @@ public final class RemoteHostService {
             return .error("Configuration changed. Reconnect.", status: 409)
         }
         guard success else { return .error("Authentication failed. Check the password, host authentication method, and account status.", status: 401) }
-        do { return .json(["token": try sessions.issue(now: now)]) }
+        if credentials.rememberDevice != nil, let previous = browserCookie(request),
+           let oldToken = rememberedSessions.removeValue(forKey: RemoteSecurity.hash(Data(previous.utf8))) {
+            sessions.revoke(oldToken)
+            if controller == oldToken { await disconnect() }
+            guard configuration == snapshot, authenticationEpoch == epoch, (try? files.load()) == snapshot else {
+                return .error("Configuration changed. Reconnect.", status: 409)
+            }
+        }
+        let token: String
+        do { token = try sessions.issue(now: now) }
         catch { return .error(error.localizedDescription, status: 429) }
+        do {
+            var response = RemoteResponse.json(BrowserLogin(token: token, remembered: credentials.rememberDevice))
+            if let remember = credentials.rememberDevice {
+                let previous = browserCookie(request)
+                let store = RememberedBrowsers(files: files)
+                if remember {
+                    let secret = try store.issue(binding: browserBinding(), replacing: previous)
+                    rememberedSessions[RemoteSecurity.hash(Data(secret.utf8))] = token
+                    response.setCookie = RememberedBrowserCookie.set(secret, port: configuration.port)
+                } else {
+                    if let previous { try store.revoke(previous) }
+                    response.setCookie = RememberedBrowserCookie.set(nil, port: configuration.port)
+                }
+            }
+            return response
+        } catch {
+            sessions.revoke(token)
+            return .error(error.localizedDescription, status: 503)
+        }
+    }
+
+    private struct BrowserLogin: Encodable { let token: String; let remembered: Bool? }
+    private func browserCookie(_ request: RemoteRequest) -> String? {
+        RememberedBrowserCookie.read(request.cookie, port: configuration.port)
+    }
+    private func browserBinding() throws -> String {
+        guard let fingerprint = status.fingerprint else { throw RemoteError.message("The host certificate is unavailable.") }
+        return try RememberedBrowsers.binding(configuration: configuration, fingerprint: fingerprint)
+    }
+    private func expiredBrowser(_ message: String, status: Int = 401) -> RemoteResponse {
+        var response = RemoteResponse.error(message, status: status)
+        response.setCookie = RememberedBrowserCookie.set(nil, port: configuration.port)
+        return response
+    }
+    private func resumeBrowser(_ request: RemoteRequest) async -> RemoteResponse {
+        guard let secret = browserCookie(request) else { return expiredBrowser("Enter the access password.") }
+        let concurrencyLimit = configuration.authenticationMode == .macOSAccount ? 1 : 2
+        guard browserRateLimiter.begin(address: request.address, now: now), loginInFlight < concurrencyLimit else {
+            return .error("Too many attempts. Try again later.", status: 429)
+        }
+        struct Payload: Decodable { let mode: String; let generation: String }
+        guard let payload = try? JSONDecoder().decode(Payload.self, from: request.body),
+              payload.mode == configuration.authenticationMode.rawValue, payload.generation == configuration.generation else {
+            return expiredBrowser("Authentication method changed. Reconnect.", status: 409)
+        }
+        let store = RememberedBrowsers(files: files), snapshot = configuration, epoch = authenticationEpoch
+        do {
+            guard try store.validate(secret, binding: browserBinding()) else {
+                return expiredBrowser("Remembered browser access expired. Enter the password again.")
+            }
+            let authenticator = self.authenticator
+            loginInFlight += 1
+            let allowed = await Task.detached { (try? authenticator.validate(snapshot)) != nil }.value
+            loginInFlight -= 1
+            guard allowed, configuration.enabled, server != nil, configuration == snapshot,
+                  authenticationEpoch == epoch, (try? files.load()) == snapshot,
+                  try store.validate(secret, binding: browserBinding()) else {
+                return expiredBrowser("Remembered browser access expired. Enter the password again.")
+            }
+            let key = RemoteSecurity.hash(Data(secret.utf8)), token: String
+            if let cached = rememberedSessions[key], sessions.validate(cached, now: now) { token = cached }
+            else {
+                do { token = try sessions.issue(now: now) }
+                catch { return .error(error.localizedDescription, status: 429) }
+                rememberedSessions[key] = token
+            }
+            return .json(BrowserLogin(token: token, remembered: true))
+        } catch { return expiredBrowser("Remembered browser data is unavailable.", status: 503) }
+    }
+    private func forgetBrowser(_ request: RemoteRequest) async -> RemoteResponse {
+        do {
+            if let secret = browserCookie(request) {
+                try RememberedBrowsers(files: files).revoke(secret)
+                if let token = rememberedSessions.removeValue(forKey: RemoteSecurity.hash(Data(secret.utf8))) {
+                    sessions.revoke(token)
+                    if controller == token { await disconnect() }
+                }
+            }
+            var response = RemoteResponse.json(["ok": true])
+            response.setCookie = RememberedBrowserCookie.set(nil, port: configuration.port)
+            return response
+        } catch { return .error("Remembered browser data is unavailable.", status: 503) }
     }
 
     private func connect(_ body: Data, token: String) async -> RemoteResponse {
-        struct Offer: Decodable { let sdp: String; let displayID: UInt32; let quality: DesktopQuality }
-        guard let offer = try? JSONDecoder().decode(Offer.self, from: body), offer.sdp.utf8.count <= 65536 else {
+        struct Offer: Decodable {
+            let sdp: String; let displayID: UInt32; let quality: DesktopQuality
+            let stream: RemoteStreamFeedback?; let hevc: Bool?
+        }
+        guard let offer = try? JSONDecoder().decode(Offer.self, from: body), offer.sdp.utf8.count <= 65536, offer.stream?.isValid != false else {
             return .error("Invalid connection request.", status: 400)
         }
         await refreshDesktopSession()
@@ -553,7 +751,12 @@ public final class RemoteHostService {
             selectedDisplayID = targetID; selectedQuality = offer.quality
             input.destination = desktopSession.locked ? .lockScreen : .desktop
             needsCaptureRebuild = true
-            let peer = try RemotePeer(sendingVideo: true)
+            let codecCapability = await DesktopHEVC.capability.value
+            guard sessions.validate(token, now: now), configuration.enabled else { throw RemoteError.message("Connection canceled.") }
+            let peer = try RemotePeer(sendingVideo: true, allowHEVC: offer.hevc == true && codecCapability.available)
+            streamFeedback = offer.stream; feedbackReceivedAt = now
+            if let preference = offer.stream?.preference { qualityController.setPreference(preference) }
+            capture.frameIdentity = peer.frameIdentity
             self.peer = peer; self.controller = token; self.mediaID = UUID().uuidString
             lastHeartbeat = now
             peer.onInput = { [weak self, weak peer] data, pointer in
@@ -575,6 +778,7 @@ public final class RemoteHostService {
             capture.onError = { [weak self, weak peer] message in
                 Task { @MainActor in
                     guard let self, let peer, self.peer === peer else { return }
+                    self.losslessSender.stop()
                     self.input.enabled = false; self.needsCaptureRebuild = true
                     self.status.message = "Video changed. Recovering: \(message)"; self.publish()
                 }
@@ -751,6 +955,8 @@ public final class RemoteHostService {
         switch path {
         case "/", "/index.html": name = "index.html"; mime = "text/html; charset=utf-8"
         case "/app.js": name = "app.js"; mime = "text/javascript; charset=utf-8"
+        case "/frame-identity-worker.js": name = "frame-identity-worker.js"; mime = "text/javascript; charset=utf-8"
+        case "/lossless.js": name = "lossless.js"; mime = "text/javascript; charset=utf-8"
         case "/client-core.js": name = "client-core.js"; mime = "text/javascript; charset=utf-8"
         case "/i18n.js": name = "i18n.js"; mime = "text/javascript; charset=utf-8"
         case "/locales/zh-Hans.json": name = "locales/zh-Hans.json"; mime = "application/json; charset=utf-8"

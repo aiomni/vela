@@ -21,8 +21,12 @@ window.runResponsiveLayoutChecks = async () => {
     assert(document.documentElement.scrollWidth <= innerWidth, `${language}: no page overflow`);
     assert(!overlaps(frame(tools), frame(actions)), `${language}: toolbar tools and actions do not overlap`);
     assert(inside(frame(actions), frame($('toolbar'))), `${language}: language and session actions fit the toolbar`);
-    const picker = actions.querySelector('[data-language]');
-    assert(picker.clientWidth >= 100, `${language}: language picker retains readable width`);
+    const languageSwitch = actions.querySelector('.language-switch');
+    assert(inside(frame(languageSwitch), frame(actions)), `${language}: language switch fits session actions`);
+    for (const button of languageSwitch.querySelectorAll('button')) {
+      assert(button.clientWidth >= 36 && button.clientHeight >= 28, `${language}: language button retains a usable target`);
+      assert(inside(frame(button), frame(languageSwitch)), `${language}: language button fits the switch`);
+    }
     for (const button of tools.querySelectorAll('button')) {
       button.scrollIntoView({block: 'nearest', inline: 'nearest'});
       assert(inside(frame(button), frame(tools)), `${language}: ${button.id || button.dataset.panel} is reachable`);

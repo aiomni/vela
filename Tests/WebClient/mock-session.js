@@ -4,14 +4,20 @@ const nativeFixtureFetch=window.fetch.bind(window);
 window.fetch=async(path,options={})=>{
  if(!String(path).startsWith('/api/'))return nativeFixtureFetch(path,options);
  const key=String(path).split('/api/')[1];window.__requests.push(key);
+ const response=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});
+ if(key==='device/resume')return localStorage.getItem('vela.fixtureRemembered')==='1'?response({token:'fixture-token',remembered:true}):response({error:'Enter the access password.'},401);
+ if(key==='device/forget'){localStorage.removeItem('vela.fixtureRemembered');return response({ok:true});}
+ if(key==='login'){const remember=JSON.parse(options.body).rememberDevice===true;if(remember)localStorage.setItem('vela.fixtureRemembered','1');else localStorage.removeItem('vela.fixtureRemembered');return response({token:'fixture-token',remembered:remember});}
+ if(key==='stream-feedback')window.__streamFeedback=JSON.parse(options.body).feedback;
  const payloads={authentication:{mode:'customPassword',generation:'fixture'},login:{token:'fixture-token'},displays:[{id:1,name:'Main Display',width:4112,height:2658}],offer:{sdp:'fixture-answer',mediaID:'fixture-media'},poll:{mediaID:'fixture-media',inputPermission:true,candidates:[],capture:{sourceWidth:4112,sourceHeight:2658,width:3340,height:2160,fps:30}},display:{ok:true},logout:{ok:true}};
+ if(key==='offer'&&window.__codecFixture?.supported&&/H265\/90000/.test(JSON.parse(options.body).sdp))payloads.offer.sdp='v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 49 108\r\na=rtpmap:49 H265/90000\r\na=fmtp:49 profile-id=1;level-id=156;tier-flag=0;tx-mode=SRST\r\na=rtpmap:108 H264/90000\r\n';
  return new Response(JSON.stringify(payloads[key]||{}),{status:200,headers:{'Content-Type':'application/json'}});
 };
 window.RTCPeerConnection=class{
  constructor(){this.connectionState='new';this.channels=[];window.__peer=this;}
- addTransceiver(){return {setCodecPreferences(){}};}
+ addTransceiver(){return {setCodecPreferences:codecs=>{this.preferredCodecs=codecs;}};}
  createDataChannel(label){const c={readyState:'open',bufferedAmount:0,send(data){window.__inputs.push({channel:label,...JSON.parse(data)});}};this.channels.push(c);return c;}
- async createOffer(){return {type:'offer',sdp:'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 108\r\na=rtpmap:108 H264/90000\r\na=fmtp:108 profile-level-id=42e01f;packetization-mode=1\r\n'};}
+ async createOffer(){if(window.__codecFixture?.supported&&this.preferredCodecs?.some(c=>c.mimeType.toLowerCase()==='video/h265'))return {type:'offer',sdp:'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 49 108\r\na=rtpmap:49 H265/90000\r\na=fmtp:49 profile-id=1;level-id=156;tier-flag=0;tx-mode=SRST\r\na=rtpmap:108 H264/90000\r\na=fmtp:108 profile-level-id=42e01f;packetization-mode=1\r\n'};return {type:'offer',sdp:'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 108\r\na=rtpmap:108 H264/90000\r\na=fmtp:108 profile-level-id=42e01f;packetization-mode=1\r\n'};}
  async setLocalDescription(sdp){this.localDescription=sdp;}
  async setRemoteDescription(){
   const canvas=document.createElement('canvas');canvas.width=3340;canvas.height=2160;const c=canvas.getContext('2d');
@@ -23,7 +29,7 @@ window.RTCPeerConnection=class{
   this.stream=canvas.captureStream(30);this.ontrack?.({track:this.stream.getVideoTracks()[0]});this.connectionState='connected';this.onconnectionstatechange?.();
  }
  async addIceCandidate(){}
- async getStats(){return new Map([['v',{type:'inbound-rtp',kind:'video',frameWidth:3340,frameHeight:2160,framesPerSecond:30,timestamp:performance.now(),bytesReceived:performance.now()*2000}],['c',{type:'candidate-pair',state:'succeeded',nominated:true,currentRoundTripTime:.008}]]);}
+ async getStats(){return new Map([['v',{type:'inbound-rtp',kind:'video',frameWidth:3340,frameHeight:2160,framesPerSecond:30,framesDecoded:window.__codecFixture?.decodedFrames,timestamp:performance.now(),bytesReceived:performance.now()*2000}],['c',{type:'candidate-pair',state:'succeeded',nominated:true,currentRoundTripTime:.008}]]);}
  close(){this.connectionState='closed';this.stream?.getTracks().forEach(t=>t.stop());}
 };
 
@@ -45,7 +51,7 @@ window.fetch=async(path,options={})=>{
  }
  if(key==='display-capabilities')return response({virtualDisplay:true,privateSession:false,physicalBlackout:true});
  if(key==='poll'){
-  const value=await (await baseFixtureFetch(path,options)).json();value.session=window.__sessionFixture;
+  const value=await (await baseFixtureFetch(path,options)).json();value.session=window.__sessionFixture;value.videoCodec=/H265\/90000/.test(window.__peer?.localDescription?.sdp||'')?'H265':'H264';
   value.displays=[virtualDisplay()];value.displayID=1;
   value.inputPermission=!__sessionFixture.requiresAccountVerification&&!__sessionFixture.recovering;
   return response(value);

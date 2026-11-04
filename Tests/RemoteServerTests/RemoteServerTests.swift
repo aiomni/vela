@@ -47,7 +47,7 @@ final class RemoteServerTests: XCTestCase {
         var replacement: RemoteHostRuntime?
         do {
             XCTAssertEqual(runtime.service.status.pid, getpid(), "The service must run inside the owning app process")
-            for route in ["i18n.js", "locales/zh-Hans.json"] {
+            for route in ["i18n.js", "lossless.js", "frame-identity-worker.js", "locales/zh-Hans.json"] {
                 let url = URL(string: "https://127.0.0.1:\(config.port)/\(route)")!
                 let (data, response) = try await session.data(from: url)
                 XCTAssertEqual((response as! HTTPURLResponse).statusCode, 200)
@@ -56,7 +56,8 @@ final class RemoteServerTests: XCTestCase {
                     XCTAssertGreaterThan(catalog.count, 700)
                     XCTAssertNotNil(catalog["Connect"])
                 } else {
-                    XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("VelaI18n"))
+                    let expected = route == "i18n.js" ? "VelaI18n" : route == "lossless.js" ? "LosslessReceiver" : "velaFrameIdentity"
+                    XCTAssertTrue(String(decoding: data, as: UTF8.self).contains(expected))
                 }
             }
             let duplicate = RemoteHostRuntime(files: files, addressProvider: { [] })
@@ -66,6 +67,14 @@ final class RemoteServerTests: XCTestCase {
             let login = try await request("login", password: "fixture-lifecycle-password")
             XCTAssertEqual(login.0, 200)
             let token = try XCTUnwrap(JSONDecoder().decode([String: String].self, from: login.1)["token"])
+            let capability = try await request("stream-capabilities", token: token)
+            XCTAssertEqual(capability.0, 200)
+            let codec = try JSONDecoder().decode([String: Bool].self, from: capability.1)
+            XCTAssertEqual(codec["available"], codec["hardwareRoundTrip"] == true && codec["rtcEncoder"] == true && codec["rtcDecoder"] == true && codec["adapterRoundTrip"] == true)
+            let feedback = await runtime.service.handle(RemoteRequest(method: "POST", path: "/api/stream-feedback",
+                host: "localhost:\(config.port)", origin: "https://localhost:\(config.port)", authorization: "Bearer \(token)", contentType: "application/json",
+                body: Data("{\"mediaID\":\"stale\",\"feedback\":{\"preference\":\"text\"}}".utf8), address: "127.0.0.1"))
+            XCTAssertEqual(feedback.status, 409, "An authenticated session without matching active media cannot change streaming policy")
             await runtime.stop()
             await runtime.stop() // App termination callbacks may repeat.
             XCTAssertEqual(files.status()?.state, "stopped")
@@ -310,6 +319,9 @@ final class RemoteServerTests: XCTestCase {
         let receivedVideo = expectation(description: "decoded H264 frame")
         let receivedControl = expectation(description: "reliable input")
         let sink = FrameSink(expectation: receivedVideo)
+        let markerCollector = FrameMarkerCollector()
+        host.frameIdentity.observe { _ in }
+        viewer.frameIdentity.observe { marker in markerCollector.add(marker.rtpTimestamp) }
         viewer.onVideo = { track in track.add(sink) }
         host.onInput = { data, pointer in
             if !pointer, let input = try? JSONDecoder().decode(RemoteInput.self, from: data), input.type == "release" {
@@ -349,15 +361,21 @@ final class RemoteServerTests: XCTestCase {
         CVPixelBufferUnlockBaseAddress(pixels, [])
         for index in 0..<60 {
             let timestamp = Int64(ProcessInfo.processInfo.systemUptime * 1_000_000_000)
+            host.frameIdentity.capture(nanoseconds: timestamp, marker: DesktopFrameMarker(epoch: "fixture", version: 1, width: 3840, height: 2160))
             source.capturer(capturer, didCapture: RTCVideoFrame(buffer: RTCCVPixelBuffer(pixelBuffer: pixels), rotation: ._0, timeStampNs: timestamp))
             if index == 15 { viewer.sendInput(RemoteInput(type: "release")) }
             try await Task.sleep(for: .milliseconds(33))
         }
         await fulfillment(of: [receivedVideo, receivedControl], timeout: 8)
         XCTAssertGreaterThan(sink.frames, 0)
+        let encodedTimestamps = markerCollector.timestamps
+        XCTAssertFalse(encodedTimestamps.isEmpty, "Frame identity SEI must survive encrypted RTP transport")
+        XCTAssertFalse(encodedTimestamps.isDisjoint(with: sink.rtpTimestamps), "In-band identity must match actual decoded RTP frames")
         XCTAssertEqual(sink.maximumWidth, 3840)
         XCTAssertEqual(sink.maximumHeight, 2160)
         let stats = await host.diagnostics()
+        var metrics = DesktopStreamMetrics()
+        XCTAssertGreaterThan(metrics.sample(stats).availableBitrate ?? 0, 0, "The selected video transport must expose its bandwidth estimate")
         XCTAssertTrue(stats.contains { $0["encoderImplementation"] == "VideoToolbox" && $0["framesEncoded"] != "0" })
     }
 
@@ -407,6 +425,8 @@ private final class FrameSink: NSObject, RTCVideoRenderer, @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
     private var width = 0, height = 0
+    private var timestamps: Set<UInt32> = []
+    var rtpTimestamps: Set<UInt32> { lock.withLock { timestamps } }
     var maximumWidth: Int { lock.lock(); defer { lock.unlock() }; return width }
     var maximumHeight: Int { lock.lock(); defer { lock.unlock() }; return height }
     let expectation: XCTestExpectation
@@ -415,7 +435,7 @@ private final class FrameSink: NSObject, RTCVideoRenderer, @unchecked Sendable {
     func setSize(_ size: CGSize) {}
     func renderFrame(_ frame: RTCVideoFrame?) {
         guard let frame else { return }
-        lock.lock(); count += 1; width = max(width, Int(frame.width)); height = max(height, Int(frame.height)); let first = count == 1; lock.unlock()
+        lock.lock(); timestamps.insert(UInt32(bitPattern: frame.timeStamp)); count += 1; width = max(width, Int(frame.width)); height = max(height, Int(frame.height)); let first = count == 1; lock.unlock()
         if first { expectation.fulfill() }
     }
 }
@@ -438,4 +458,11 @@ private final class MockAccountDirectory: RemoteAccountDirectory, @unchecked Sen
         if blockVerification, release.wait(timeout: .now() + 5) == .timedOut { throw RemoteError.message("fixture timeout") }
         if password != "fixture-system-password" { throw RemoteError.message("private-directory-detail") }
     }
+}
+
+private final class FrameMarkerCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: Set<UInt32> = []
+    var timestamps: Set<UInt32> { lock.withLock { values } }
+    func add(_ value: UInt32) { lock.withLock { _ = values.insert(value) } }
 }

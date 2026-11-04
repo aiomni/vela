@@ -46,7 +46,8 @@
       }
     }
     root.document.documentElement.lang=language;
-    for(const picker of scope.querySelectorAll('[data-language]'))picker.value=language;
+    for(const button of scope.querySelectorAll('button[data-language]'))button.setAttribute('aria-pressed',String(button.dataset.language===language));
+    for(const name of scope.querySelectorAll('[data-language-name]'))name.textContent=catalog.Chinese??'Chinese';
   }
   const ready=root.document?fetch('/locales/zh-Hans.json',{cache:'no-cache',credentials:'omit'})
     .then(response=>{if(!response.ok)throw new Error('Unable to load translations');return response.json();})
@@ -61,5 +62,8 @@
   const api={t,apply,setLanguage,ready,get language(){return language;},setCatalog};
   root.VelaI18n=api;
   if(typeof module!=='undefined')module.exports=api;
-  root.document?.addEventListener('change',event=>{if(event.target.matches('[data-language]'))void setLanguage(event.target.value);});
+  root.document?.addEventListener('click',event=>{
+    const button=event.target.closest('button[data-language]');
+    if(button)void setLanguage(button.dataset.language);
+  });
 })(typeof window==='undefined'?globalThis:window);

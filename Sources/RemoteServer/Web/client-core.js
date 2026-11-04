@@ -13,9 +13,31 @@
     if(!clamp&&(x<0||y<0||x>1||y>1))return null;
     return {x:Math.min(1,Math.max(0,x)),y:Math.min(1,Math.max(0,y))};
   }
+  function viewportFeedback(width,height,dpr,zoom){
+    // Detail views retain the selected source quality instead of a window-sized budget.
+    if(zoom!=='fit')return {};
+    const scale=Math.max(1,Math.min(3,dpr||1));
+    return {viewportWidth:Math.max(1,Math.min(16384,Math.round(width*scale))),viewportHeight:Math.max(1,Math.min(16384,Math.round(height*scale)))};
+  }
   function bitrate(previous,current){
     const dt=current.timestamp-(previous?.timestamp??current.timestamp),db=current.bytesReceived-(previous?.bytesReceived??current.bytesReceived);
     return dt>0&&db>=0?db*8/dt/1000:null;
+  }
+  function verifiedHEVCCodecs(codecs,verification){
+    if(!verification?.supported||!verification?.powerEfficient)return [];
+    return codecs.filter(codec=>{
+      if(codec.mimeType.toLowerCase()!=='video/h265')return false;
+      const parameters=Object.fromEntries((codec.sdpFmtpLine||'').split(';').map(field=>field.trim().split('=')));
+      return (parameters['profile-id']||'1')==='1'&&(parameters['tier-flag']||'0')==='0'&&(parameters['tx-mode']||'SRST')==='SRST';
+    });
+  }
+  function receiverFeedback(previous,current){
+    if(!previous||current.id!==previous.id||current.timestamp<=previous.timestamp)return {};
+    const frames=current.framesDecoded-previous.framesDecoded,dropped=current.framesDropped-previous.framesDropped;
+    const seconds=current.totalDecodeTime-previous.totalDecodeTime,result={};
+    if(Number.isFinite(frames)&&frames>0&&Number.isFinite(seconds)&&seconds>=0)result.decodeMilliseconds=seconds*1000/frames;
+    if(Number.isFinite(frames)&&frames>=0&&Number.isFinite(dropped)&&dropped>=0&&frames+dropped>0)result.droppedFrameRatio=dropped/(frames+dropped);
+    return result;
   }
   function validVirtualDisplay({width,height,hiDPI}){
     if(!Number.isInteger(width)||!Number.isInteger(height)||width<640||height<480||width>3840||height>3840||width%2||height%2||width*height>3840*2160)return false;
@@ -42,7 +64,7 @@
     if(dy<=-60&&-dy>Math.abs(dx)*1.4&&deltas.every(p=>p.y<=-40&&-p.y>Math.abs(p.x)*1.2))return 'overview';
     return null;
   }
-  const api={modifierName,surfaceSize,point,bitrate,upgradeH264SDP,fourFingerAction,validVirtualDisplay};
+  const api={modifierName,surfaceSize,point,viewportFeedback,bitrate,upgradeH264SDP,fourFingerAction,validVirtualDisplay,receiverFeedback,verifiedHEVCCodecs};
   if(typeof module!=='undefined')module.exports=api;
   root.RemoteClientCore=api;
 })(globalThis);

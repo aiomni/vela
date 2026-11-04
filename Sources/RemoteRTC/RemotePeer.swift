@@ -9,6 +9,27 @@ public final class RemotePeer: NSObject {
         RTCInitializeSSL()
         return RTCPeerConnectionFactory(encoderFactory: DesktopEncoderFactory(), decoderFactory: DesktopDecoderFactory())
     }()
+    public private(set) var activeVideoCodec: String?
+    private var activeVideoParameters: [String: String]?
+    private var negotiatedVideo: (name: String, parameters: [String: String]) {
+        let description = connection.localDescription?.type == .answer ? connection.localDescription :
+            connection.remoteDescription?.type == .answer ? connection.remoteDescription : connection.localDescription
+        let section = (description?.sdp ?? "").components(separatedBy: "m=video ").dropFirst().first?.components(separatedBy: "\r\nm=").first ?? ""
+        let lines = section.components(separatedBy: "\r\n")
+        let payload = lines.first?.split(separator: " ").dropFirst(2).first.map(String.init) ?? ""
+        let name = lines.first { $0.hasPrefix("a=rtpmap:\(payload) ") }?.split(separator: " ").last?.split(separator: "/").first.map(String.init) ?? "H264"
+        let fmtp = lines.first { $0.hasPrefix("a=fmtp:\(payload) ") }?.components(separatedBy: " ").dropFirst().joined(separator: " ") ?? ""
+        return (name, Self.parseVideoParameters(fmtp))
+    }
+    private static func parseVideoParameters(_ text: String) -> [String: String] {
+        var result: [String: String] = [:]
+        for field in text.split(separator: ";") {
+            let pair = field.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            if pair.count == 2 { result[pair[0]] = pair[1] }
+        }
+        return result
+    }
+    public var videoCodec: String { activeVideoCodec ?? negotiatedVideo.name }
     public private(set) var connection: RTCPeerConnection!
     public private(set) var videoSource: RTCVideoSource?
     public private(set) var remoteVideo: RTCVideoTrack?
@@ -16,9 +37,13 @@ public final class RemotePeer: NSObject {
     public private(set) var closed = false
     public private(set) var connectionState: RTCPeerConnectionState = .new
     public var captureLimit: H264CaptureLimit {
-        let profile = sender?.parameters.codecs.first(where: { $0.name == "H264" })?.parameters["profile-level-id"] as? String ?? "42e01f"
+        let parameters = activeVideoParameters ?? negotiatedVideo.parameters
+        if videoCodec == "H265" { return H264CaptureLimit(hevcLevel: Int(parameters["level-id"] ?? "93") ?? 93) }
+        let profile = parameters["profile-level-id"] ?? "42e01f"
         return H264CaptureLimit(level: Int(profile.suffix(2), radix: 16) ?? 31)
     }
+    public let frameIdentity = DesktopFrameIdentity()
+    public var onEnhancement: ((Data) -> Void)?
     public var onInput: ((Data, Bool) -> Void)?
     public var onState: ((RTCPeerConnectionState) -> Void)?
     public var onVideo: ((RTCVideoTrack) -> Void)?
@@ -26,8 +51,12 @@ public final class RemotePeer: NSObject {
     public var onMessage: ((Data) -> Void)?
     private var channels: [String: RTCDataChannel] = [:]
     private var sender: RTCRtpSender?
+    private var lastMaximumBitrate: Int?
 
-    public init(sendingVideo: Bool) throws {
+    public convenience init(sendingVideo: Bool, allowHEVC: Bool = false) throws {
+        try self.init(sendingVideo: sendingVideo, allowHEVC: allowHEVC, encoderFactory: nil)
+    }
+    init(sendingVideo: Bool, allowHEVC: Bool, encoderFactory: RTCVideoEncoderFactory?) throws {
         super.init()
         let configuration = RTCConfiguration()
         configuration.sdpSemantics = .unifiedPlan
@@ -35,15 +64,18 @@ public final class RemotePeer: NSObject {
         configuration.continualGatheringPolicy = .gatherContinually
         configuration.bundlePolicy = .maxBundle
         configuration.rtcpMuxPolicy = .require
-        guard let connection = Self.factory.peerConnection(with: configuration,
+        _ = Self.factory // Initialize SSL once before constructing per-peer codec observers.
+        let factory = RTCPeerConnectionFactory(encoderFactory: encoderFactory ?? DesktopEncoderFactory(hevc: allowHEVC, identity: sendingVideo ? frameIdentity : nil),
+            decoderFactory: DesktopDecoderFactory(hevc: allowHEVC, identity: sendingVideo ? nil : frameIdentity))
+        guard let connection = factory.peerConnection(with: configuration,
             constraints: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil), delegate: self) else {
             throw RemoteError.message("Unable to initialize WebRTC.")
         }
         self.connection = connection
         if sendingVideo {
-            let source = Self.factory.videoSource(forScreenCast: true)
+            let source = factory.videoSource(forScreenCast: true)
             videoSource = source
-            let track = Self.factory.videoTrack(with: source, trackId: "desktop")
+            let track = factory.videoTrack(with: source, trackId: "desktop")
             sender = connection.add(track, streamIds: ["desktop"])
         } else {
             let setup = RTCRtpTransceiverInit()
@@ -56,6 +88,15 @@ public final class RemotePeer: NSObject {
             pointer.isOrdered = false
             pointer.maxRetransmits = 0
             if let channel = connection.dataChannel(forLabel: "pointer", configuration: pointer) { install(channel) }
+            let enhancement = RTCDataChannelConfiguration(); enhancement.isOrdered = false
+            if let channel = connection.dataChannel(forLabel: "enhancement", configuration: enhancement) { install(channel) }
+        }
+        if allowHEVC {
+            let capabilities = factory.rtpSenderCapabilities(forKind: kRTCMediaStreamTrackKindVideo).codecs
+            let ordered = capabilities.filter { $0.name.uppercased() == "H265" } + capabilities.filter { $0.name.uppercased() != "H265" }
+            for transceiver in connection.transceivers where transceiver.mediaType == .video {
+                try transceiver.setCodecPreferences(ordered, error: ())
+            }
         }
     }
 
@@ -113,6 +154,13 @@ public final class RemotePeer: NSObject {
     }
     public func configureBitrate(maximum: Int, fps: Int) {
         guard let sender else { return }
+        if lastMaximumBitrate != maximum {
+            // Align the transport ceiling with the encoding ceiling without forcing
+            // a bandwidth estimate or imposing a minimum on a congested network.
+            if connection.setBweMinBitrateBps(nil, currentBitrateBps: nil, maxBitrateBps: NSNumber(value: maximum)) {
+                lastMaximumBitrate = maximum
+            }
+        }
         let parameters = sender.parameters
         for encoding in parameters.encodings {
             encoding.maxBitrateBps = NSNumber(value: maximum)
@@ -123,21 +171,46 @@ public final class RemotePeer: NSObject {
     }
     public func diagnostics() async -> [[String: String]] {
         guard !closed else { return [] }
-        return await withCheckedContinuation { continuation in
+        let statistics: [[String: String]] = await withCheckedContinuation { continuation in
             connection.statistics { report in
-                let allowed = ["outbound-rtp", "inbound-rtp", "media-source", "codec"]
+                let allowed = ["outbound-rtp", "inbound-rtp", "remote-inbound-rtp", "media-source", "codec", "candidate-pair", "transport"]
                 let values = report.statistics.values.filter { allowed.contains($0.type) }.map { stat in
                     var values = stat.values.mapValues { String(describing: $0) }
+                    if stat.type == "candidate-pair" {
+                        let safe = ["state", "nominated", "currentRoundTripTime", "availableOutgoingBitrate", "bytesSent", "bytesReceived"]
+                        values = values.filter { safe.contains($0.key) }
+                    }
+                    if stat.type == "transport" {
+                        let safe = ["selectedCandidatePairId", "dtlsState", "bytesSent", "bytesReceived"]
+                        values = values.filter { safe.contains($0.key) }
+                    }
+                    values["id"] = stat.id
                     values["type"] = stat.type
                     return values
                 }
                 continuation.resume(returning: values)
             }
         }
+        if !closed {
+            let stream = statistics.first { ($0["type"] == "outbound-rtp" || $0["type"] == "inbound-rtp") && ($0["kind"] == "video" || $0["mediaType"] == "video") }
+            if let codecID = stream?["codecId"], let codec = statistics.first(where: { $0["type"] == "codec" && $0["id"] == codecID }),
+               let mime = codec["mimeType"], let name = mime.split(separator: "/").last {
+                activeVideoCodec = String(name).uppercased()
+                if let fmtp = codec["sdpFmtpLine"], !fmtp.isEmpty { activeVideoParameters = Self.parseVideoParameters(fmtp) }
+                else { activeVideoParameters = negotiatedVideo.name.uppercased() == activeVideoCodec ? negotiatedVideo.parameters : [:] }
+            }
+        }
+        return statistics
     }
     public func send(_ data: Data, pointer: Bool = false) -> Bool {
         guard !closed, let channel = channels[pointer ? "pointer" : "control"],
               channel.readyState == .open, channel.bufferedAmount < 65536 else { return false }
+        return channel.sendData(RTCDataBuffer(data: data, isBinary: false))
+    }
+    public var enhancementReady: Bool { channels["enhancement"]?.readyState == .open }
+    public func sendEnhancement(_ data: Data) -> Bool {
+        guard !closed, data.count <= 16384, let channel = channels["enhancement"], channel.readyState == .open,
+              channel.bufferedAmount < 32768, (channels["control"]?.bufferedAmount ?? 0) < 4096 else { return false }
         return channel.sendData(RTCDataBuffer(data: data, isBinary: false))
     }
     public func sendInput(_ input: RemoteInput) {
@@ -147,6 +220,7 @@ public final class RemotePeer: NSObject {
     public func close() {
         guard !closed else { return }
         closed = true
+        frameIdentity.observe(nil)
         for channel in channels.values { channel.delegate = nil; channel.close() }
         channels.removeAll()
         connection.delegate = nil
@@ -155,7 +229,7 @@ public final class RemotePeer: NSObject {
         remoteVideo = nil
     }
     private func install(_ channel: RTCDataChannel) {
-        guard ["control", "pointer"].contains(channel.label), channels[channel.label] == nil else { channel.close(); return }
+        guard ["control", "pointer", "enhancement"].contains(channel.label), channels[channel.label] == nil else { channel.close(); return }
         channels[channel.label] = channel
         channel.delegate = self
     }
@@ -204,6 +278,7 @@ extension RemotePeer: RTCDataChannelDelegate {
         let pointer = dataChannel.label == "pointer"
         Task { @MainActor [weak self] in
             guard let self, !self.closed else { return }
+            if dataChannel.label == "enhancement" { self.onEnhancement?(data); return }
             self.onInput?(data, pointer)
             self.onMessage?(data)
         }
