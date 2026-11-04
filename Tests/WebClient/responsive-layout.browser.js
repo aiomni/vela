@@ -15,12 +15,24 @@ window.runResponsiveLayoutChecks = async () => {
   }
   const peer = __peer, offers = __requests.filter(path => path === 'offer').length;
   const tools = document.querySelector('.tools'), actions = document.querySelector('.session-actions');
+  const shortLandscape = matchMedia('(max-height: 500px) and (orientation: landscape)').matches;
   for (const language of ['en', 'zh-Hans']) {
     await VelaI18n.setLanguage(language);
     await new Promise(requestAnimationFrame);
     assert(document.documentElement.scrollWidth <= innerWidth, `${language}: no page overflow`);
     assert(!overlaps(frame(tools), frame(actions)), `${language}: toolbar tools and actions do not overlap`);
     assert(inside(frame(actions), frame($('toolbar'))), `${language}: language and session actions fit the toolbar`);
+    if (shortLandscape) {
+      const toolbar = frame($('toolbar')), workspace = frame($('workspace'));
+      const style = getComputedStyle($('toolbar'));
+      const safeTop = parseFloat(style.paddingTop), safeBottom = parseFloat(getComputedStyle($('statusbar')).paddingBottom);
+      assert(toolbar.height <= 49 + safeTop, `${language}: landscape toolbar stays one compact row`);
+      assert(Math.abs(frame(tools).top - frame(actions).top) <= 1, `${language}: landscape tools and session actions share a row`);
+      assert(workspace.height >= innerHeight - 90 - safeTop - safeBottom, `${language}: landscape reserves height for the desktop`);
+      for (const button of [...tools.querySelectorAll('button'), ...actions.querySelectorAll('button')]) {
+        assert(button.clientHeight >= 42, `${language}: compact toolbar keeps touch targets usable`);
+      }
+    }
     const languageSwitch = actions.querySelector('.language-switch');
     assert(inside(frame(languageSwitch), frame(actions)), `${language}: language switch fits session actions`);
     for (const button of languageSwitch.querySelectorAll('button')) {
@@ -44,7 +56,11 @@ window.runResponsiveLayoutChecks = async () => {
       const panel = $(id), rect = frame(panel), workspace = frame($('workspace'));
       assert(!panel.hidden && inside(rect, workspace), `${language}: ${id} fits the workspace`);
       assert(panel.scrollWidth <= panel.clientWidth + 1, `${language}: ${id} has no horizontal content overflow`);
-      if (id === 'keyboard-panel' && innerWidth <= 1100) {
+      if (id === 'keyboard-panel' && $('desktop').classList.contains('keyboard-docked')) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert(frame($('screen')).right <= rect.left + 1, `${language}: side keyboard leaves the remote screen beside it`);
+        assert(Math.abs(frame($('screen')).height - workspace.height) <= 1, `${language}: side keyboard preserves full screen height`);
+      } else if (id === 'keyboard-panel' && innerWidth <= 1100) {
         assert(frame($('screen')).bottom <= rect.top + 1, `${language}: keyboard leaves the remote screen accessible`);
       }
       panel.querySelector('[data-close-panel]').click();

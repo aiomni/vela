@@ -27,10 +27,13 @@ class Handler(BaseHTTPRequestHandler):
             "/session-tests.js": (TESTS / "private-session.browser.js", "text/javascript"),
             "/codec-tests.js": (TESTS / "codec-fallback.browser.js", "text/javascript"),
             "/zoom-tests.js": (TESTS / "zoom.browser.js", "text/javascript"),
+            "/pinch-tests.js": (TESTS / "pinch.browser.js", "text/javascript"),
             "/touch-tests.js": (TESTS / "touch-gestures.browser.js", "text/javascript"),
             "/language-tests.js": (TESTS / "localization.browser.js", "text/javascript"),
             "/remember-tests.js": (TESTS / "remembered-browser.browser.js", "text/javascript"),
             "/layout-tests.js": (TESTS / "responsive-layout.browser.js", "text/javascript"),
+            "/mouse-sidebar-tests.js": (TESTS / "mouse-sidebar.browser.js", "text/javascript"),
+            "/keyboard-layout-tests.js": (TESTS / "keyboard-layout.browser.js", "text/javascript"),
             "/virtual-tests.js": (TESTS / "virtual-presets.browser.js", "text/javascript"),
         }
         if route not in routes:

@@ -19,6 +19,11 @@
     const scale=Math.max(1,Math.min(3,dpr||1));
     return {viewportWidth:Math.max(1,Math.min(16384,Math.round(width*scale))),viewportHeight:Math.max(1,Math.min(16384,Math.round(height*scale)))};
   }
+  function touchPair(points){
+    if(points.size!==2)return null;
+    const [a,b]=[...points.values()];
+    return {x:(a.x+b.x)/2,y:(a.y+b.y)/2,distance:Math.hypot(a.x-b.x,a.y-b.y)};
+  }
   function bitrate(previous,current){
     const dt=current.timestamp-(previous?.timestamp??current.timestamp),db=current.bytesReceived-(previous?.bytesReceived??current.bytesReceived);
     return dt>0&&db>=0?db*8/dt/1000:null;
@@ -64,7 +69,7 @@
     if(dy<=-60&&-dy>Math.abs(dx)*1.4&&deltas.every(p=>p.y<=-40&&-p.y>Math.abs(p.x)*1.2))return 'overview';
     return null;
   }
-  const api={modifierName,surfaceSize,point,viewportFeedback,bitrate,upgradeH264SDP,fourFingerAction,validVirtualDisplay,receiverFeedback,verifiedHEVCCodecs};
+  const api={modifierName,surfaceSize,point,viewportFeedback,touchPair,bitrate,upgradeH264SDP,fourFingerAction,validVirtualDisplay,receiverFeedback,verifiedHEVCCodecs};
   if(typeof module!=='undefined')module.exports=api;
   root.RemoteClientCore=api;
 })(globalThis);

@@ -41,13 +41,27 @@ Open http://127.0.0.1:8769 in a fresh browser context. Load these scripts and ca
   /touch-tests.js    -> await runTouchChecks()
   /codec-tests.js    -> await runCodecFallbackChecks()
   /zoom-tests.js     -> await runZoomChecks()
+  /pinch-tests.js    -> await runPinchChecks()
   /virtual-tests.js  -> await runVirtualPresetChecks()
   /layout-tests.js   -> await runResponsiveLayoutChecks()
+  /mouse-sidebar-tests.js -> await runMouseSidebarChecks()
 Run language checks first, on a fresh page. Also check a narrow/mobile viewport.
 Run layout checks at 320, 360, 390, 430, 768, 800, 844, 1024, 1100, 1101, 1280,
 and 1440 CSS pixels, including a short landscape viewport. These check both
 languages, toolbar label bounds and reachability, status/metrics separation,
 all panels, keyboard screen space, collapse/expand, and session continuity.
+For compact landscape controls, also check 568x320, 667x375, 740x360, 800x360,
+844x390, 932x430, 1024x499, 1100x500, 1101x500, 1280x500, and 844x501.
+Check the full-screen exit label and rotate between portrait and landscape
+without replacing the peer. The compact row keeps touch targets 44 CSS pixels
+high and preserves horizontal tool reachability. Verify physical-device safe
+areas separately; browser viewport emulation does not prove notched Safari UI.
+Run mouse-sidebar checks on a fresh session after localization at 844x390, before
+opening other panels. At 568x320 pass {expectAutoDock:false}. These verify spare-
+space docking, mode buttons, collapsed help, input release, animation progress,
+centering, explicit dismissal, reopening, and peer continuity. Separately rotate
+an automatically docked session to portrait and back, then repeat after closing
+the sidebar; an explicit close must remain closed for that connection.
 Virtual preset checks use mocked display responses to verify all 18 presets with
 and without HiDPI, localized option groups, logical-size summaries, request
 dimensions, custom-size rejection, and session continuity. They create no real
@@ -156,7 +170,11 @@ panning, ordinary scroll forwarding, view-only input blocking, and return to fit
 It starts no remote host, posts no system events, and does not verify live video
 presentation. Run /zoom-tests.js on the browser fixture after language checks at
 desktop and narrow/mobile sizes. It also checks source-quality feedback, touch
-inspection with remote input paused, authentication continuity, and localization.
+local view inspection, authentication continuity, and localization.
+The pinch fixture checks continuous two-finger zoom about a source detail,
+two-finger local panning while zoomed, one-finger mouse clicks and dragging,
+hardware/on-screen keyboard and text input, fixed magnification when the keyboard
+opens, cancellation, view-only permission preservation, and recovery overlay bounds.
 Current acceptance is in Design/vela-remote-zoom-2026-11-04.md.
 
 Remembered browser access:
@@ -172,3 +190,8 @@ Remembered browser access:
 - Mock-browser tests verify client behavior; Swift TLS tests verify real Set-Cookie
   headers and credential validation. They do not modify OS/browser certificate
   trust or claim an installed-app test. Current evidence is recorded separately.
+
+Mobile pinch acceptance supersedes the previous input-pausing Pan view UI:
+  Design/vela-mobile-pinch-2026-11-04.md
+Run pinch checks in both touch modes at phone portrait and short landscape sizes.
+Synthetic browser checks do not replace physical iOS/Android gesture acceptance.

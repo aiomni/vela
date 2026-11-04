@@ -6,9 +6,13 @@ let candidates=[],candidateOffset=0,polling=null,statsTimer=null,retryTimer=null
 let sequence=0,connected=false,inputAllowed=false,connecting=false,connectionEpoch=0;
 let lastMove=null,moveFrame=null,retryCount=0,deliberateClose=false,viewOnly=false;
 let displays=[],captureInfo={},previousStats=null,noticeTimer=null,activePanel=null,dragging=false;
+let mousePanelChoice='auto',mouseLayoutFrame=null;
+let keyboardLayout='side';
+const keyboardLayoutKey='vela.keyboardLayout';
+try{const saved=localStorage.getItem(keyboardLayoutKey);if(['side','bottom'].includes(saved))keyboardLayout=saved;}catch{}
 let streamInfo=null,videoCodec='H264',streamDiagnostics={},feedbackBusy=false,losslessChannel=null,frameSyncSupported=false,frameCallback=null,identityWorker=null,encodedMetadataSupported=false,disableEncodedTransform=false;
 let forceH264=false,hevcAttempted=false,hevcVerifiedLocally=false,lastVideoProgress=0,lastDecodedFrames=-1;
-let panView=false,panDrag=null;
+let gestureZoom=1,gestureWidth=0,touchFrame=null;
 const losslessCanvas=$('lossless-canvas'),losslessContext=losslessCanvas.getContext('2d');
 const losslessReceiver=new DesktopLosslessReceiver({
   decode:png=>createImageBitmap(new Blob([png],{type:'image/png'})),
@@ -56,10 +60,10 @@ function message(text='',persistent=false){
   if(text&&!persistent)noticeTimer=setTimeout(()=>{$('message').hidden=true;},8000);
 }
 function state(text,live=false){$('connection').textContent=text;$('connection').classList.toggle('live',live);updateControlState();}
-function canInput(){return connected&&inputAllowed&&!viewOnly&&!panView&&control?.readyState==='open';}
+function canInput(){return connected&&inputAllowed&&!viewOnly&&control?.readyState==='open';}
 function updateControlState(){
   const ready=canInput();
-  $('control-state').textContent=panView?t("Pan view · Remote input paused"):!connected?t("Connecting…"):sessionInfo?.requiresAccountVerification?t("Current user session unavailable"):sessionInfo?.recovering?t("Restoring video…"):!inputAllowed?t("View only · Access not granted"):viewOnly?t("View only"):ready?(dragging?t("Dragging · Click to release"):sessionInfo?.state==='locked'?t("System locked · Password entry available"):sessionInfo?.state==='blackout'?t("Virtual display only · Control ready"):t("Control ready · Keyboard and mouse available")):t("Connecting control channel…");
+  $('control-state').textContent=!connected?t("Connecting…"):sessionInfo?.requiresAccountVerification?t("Current user session unavailable"):sessionInfo?.recovering?t("Restoring video…"):!inputAllowed?t("View only · Access not granted"):viewOnly?t("View only"):ready?(dragging?t("Dragging · Click to release"):sessionInfo?.state==='locked'?t("System locked · Password entry available"):sessionInfo?.state==='blackout'?t("Virtual display only · Control ready"):t("Control ready · Keyboard and mouse available")):t("Connecting control channel…");
   document.querySelectorAll('[data-remote-input]').forEach(button=>button.disabled=!ready);
   $('input-hint').hidden=!ready||!!activePanel;
   const locked=sessionInfo?.state==='locked';
@@ -168,17 +172,16 @@ function send(input,moving=false){
 function updateModifierButtons(){
   document.querySelectorAll('.modifier').forEach(button=>{const selected=heldModifiers.has(button.dataset.key);button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',String(selected));});
 }
-function release({preserveTouches=false}={}){
-  panDrag=null;
-  $('lock-text').value='';
+function release({preserveTouches=false,preserveMaskedText=false}={}){
+  if(touchFrame)cancelAnimationFrame(touchFrame);touchFrame=null;
+  if(!preserveMaskedText)$('lock-text').value='';
   if(control?.readyState==='open')control.send(JSON.stringify({type:'release'}));
   heldKeys.clear();heldModifiers.clear();mouseButtons.clear();dragging=false;lastMove=null;
   clearTimeout(longPressTimer);if(!preserveTouches){touches.clear();touchGesture=null;}
   if(moveFrame)cancelAnimationFrame(moveFrame);moveFrame=null;
-  $('drag-toggle').setAttribute('aria-pressed','false');updateModifierButtons();updateControlState();
+  $('drag-toggle').setAttribute('aria-pressed','false');updateModifierButtons();updateControlState();scheduleMouseLayout();
 }
 function closePeer(){
-  if(panView)setViewPanning(false);
   release();connected=false;inputAllowed=false;clearInterval(polling);polling=null;clearInterval(statsTimer);statsTimer=null;
   if(peer){peer.onconnectionstatechange=null;peer.onicecandidate=null;peer.close();}
   peer=null;control=null;pointer=null;mediaID=null;candidates=[];candidateOffset=0;previousStats=null;captureInfo={};streamInfo=null;streamDiagnostics={};videoCodec='H264';
@@ -186,50 +189,84 @@ function closePeer(){
   if(frameCallback!==null&&$('video').cancelVideoFrameCallback)$('video').cancelVideoFrameCallback(frameCallback);frameCallback=null;
   $('video').srcObject=null;$('screen-overlay').hidden=false;updateControlState();
 }
-function layoutVideo(){
+function layoutVideo(anchor=null){
   const screen=$('screen'),old=$('surface').getBoundingClientRect(),view=screen.getBoundingClientRect();
   const center=Core.point(old,view.left+screen.clientWidth/2,view.top+screen.clientHeight/2,true)||{x:.5,y:.5};
-  const size=Core.surfaceSize($('video').videoWidth,$('video').videoHeight,$('screen').clientWidth,$('screen').clientHeight,$('zoom').value,window.devicePixelRatio);
+  const size=Core.surfaceSize($('video').videoWidth,$('video').videoHeight,$('screen').clientWidth,$('screen').clientHeight,$('zoom').value==='gesture'?'fit':$('zoom').value,window.devicePixelRatio);
+  if($('zoom').value==='gesture'&&gestureWidth>0){const aspect=size.height/size.width;size.width=gestureWidth;size.height=gestureWidth*aspect;}
   $('surface').style.width=`${size.width}px`;$('surface').style.height=`${size.height}px`;
   $('surface').style.marginTop=`${Math.max(0,($('screen').clientHeight-size.height)/2)}px`;
   const updated=$('surface').getBoundingClientRect();
-  screen.scrollLeft+=updated.left+center.x*size.width-view.left-screen.clientWidth/2;
-  screen.scrollTop+=updated.top+center.y*size.height-view.top-screen.clientHeight/2;
+  screen.scrollLeft+=updated.left+(anchor?.source?.x??center.x)*size.width-(anchor?.client?.x??view.left+screen.clientWidth/2);
+  screen.scrollTop+=updated.top+(anchor?.source?.y??center.y)*size.height-(anchor?.client?.y??view.top+screen.clientHeight/2);
 }
 new ResizeObserver(layoutVideo).observe($('screen'));
 new ResizeObserver(()=>{if(activePanel==='keyboard-panel')$('desktop').style.setProperty('--keyboard-space',`${$('keyboard-panel').offsetHeight+20}px`);}).observe($('keyboard-panel'));
-$('video').addEventListener('resize',()=>{losslessReceiver.reset();layoutVideo();});$('video').addEventListener('loadedmetadata',layoutVideo);
-$('zoom').addEventListener('change',()=>{release();if($('zoom').value==='fit'&&panView)setViewPanning(false);layoutVideo();sendStreamFeedback(connectionEpoch);});
-function setViewPanning(value){
-  release();panView=value;$('pan-view').setAttribute('aria-pressed',String(value));$('exit-pan-view').hidden=!value;$('screen').classList.toggle('panning-view',value);updateControlState();
-}
-$('pan-view').addEventListener('click',()=>setViewPanning(!panView));
-$('exit-pan-view').addEventListener('click',()=>setViewPanning(false));
-function panPointer(event,action){
-  if(!panView)return false;
-  event.preventDefault();
-  if(action==='down'&&!panDrag){if(activePanel)closePanels(false);panDrag={id:event.pointerId,x:event.clientX,y:event.clientY};$('screen').setPointerCapture(event.pointerId);$('screen').focus({preventScroll:true});}
-  if(panDrag?.id===event.pointerId){
-    if(action==='move'){$('screen').scrollBy(panDrag.x-event.clientX,panDrag.y-event.clientY);panDrag.x=event.clientX;panDrag.y=event.clientY;}
-    if(action==='up')panDrag=null;
-  }
-  return true;
+$('video').addEventListener('resize',()=>{losslessReceiver.reset();layoutVideo();scheduleMouseLayout();});$('video').addEventListener('loadedmetadata',()=>{layoutVideo();scheduleMouseLayout();});
+$('zoom').addEventListener('change',()=>{release();layoutVideo();sendStreamFeedback(connectionEpoch);});
+function setGestureZoom(value,anchor){
+  gestureZoom=value;
+  gestureWidth=Core.surfaceSize($('video').videoWidth,$('video').videoHeight,$('screen').clientWidth,$('screen').clientHeight,'fit',window.devicePixelRatio).width*value;
+  let option=$('zoom').querySelector('option[value="gesture"]');
+  if(!option){option=document.createElement('option');option.value='gesture';$('zoom').append(option);}
+  option.textContent=t("{0}× · Pinch zoom",gestureZoom.toFixed(1));
+  $('zoom').value=Math.abs(gestureZoom-1)<=.001?'fit':'gesture';
+  layoutVideo(anchor);
 }
 function centerView(){$('screen').scrollLeft=($('screen').scrollWidth-$('screen').clientWidth)/2;$('screen').scrollTop=($('screen').scrollHeight-$('screen').clientHeight)/2;}
 $('center-view').addEventListener('click',centerView);
-function closePanels(focus=true){
+function mousePanelCanDock(){
+  const workspace=$('workspace'),video=$('video');
+  if(!matchMedia('(orientation: landscape)').matches||workspace.clientHeight<300||!video.videoWidth||!video.videoHeight)return false;
+  const reserved=parseFloat(getComputedStyle(workspace).getPropertyValue('--mouse-sidebar-space'));
+  const fittedWidth=Math.min(workspace.clientWidth,workspace.clientHeight*video.videoWidth/video.videoHeight);
+  return workspace.clientWidth-reserved>=Math.max(320,fittedWidth);
+}
+function scheduleMouseLayout(){
+  if(mouseLayoutFrame!==null)return;
+  mouseLayoutFrame=requestAnimationFrame(()=>{mouseLayoutFrame=null;updateMouseLayout();updateKeyboardLayout();});
+}
+function updateKeyboardLayout(){
+  const workspace=$('workspace'),width=Math.round(Math.min(680,Math.max(440,workspace.clientWidth*.52)));
+  const available=matchMedia('(orientation: landscape)').matches&&workspace.clientHeight>=180&&workspace.clientWidth-width-12>=320;
+  workspace.style.setProperty('--keyboard-sidebar-width',`${width}px`);
+  workspace.style.setProperty('--keyboard-sidebar-space',`${width+12}px`);
+  $('keyboard-layout-switch').hidden=!available;
+  document.querySelectorAll('[data-keyboard-layout]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.keyboardLayout===keyboardLayout)));
+  $('desktop').classList.toggle('keyboard-docked',activePanel==='keyboard-panel'&&available&&keyboardLayout==='side');
+}
+document.querySelectorAll('[data-keyboard-layout]').forEach(button=>button.addEventListener('click',()=>{
+  release({preserveMaskedText:true});keyboardLayout=button.dataset.keyboardLayout;
+  try{localStorage.setItem(keyboardLayoutKey,keyboardLayout);}catch{}
+  updateKeyboardLayout();layoutVideo();
+}));
+function updateMouseLayout(){
+  if($('desktop').hidden||document.hidden||!token||touches.size||mouseButtons.size||dragging)return;
+  const dock=mousePanelCanDock();
+  if(activePanel===null&&mousePanelChoice==='auto'&&dock){
+    activePanel='mouse-panel';$('mouse-panel').hidden=false;
+    document.querySelector('[data-panel="mouse-panel"]').setAttribute('aria-expanded','true');updateControlState();
+  }else if(activePanel==='mouse-panel'&&mousePanelChoice==='auto'&&!dock){
+    closePanels(false);return;
+  }
+  $('desktop').classList.toggle('mouse-docked',activePanel==='mouse-panel'&&dock);
+}
+new ResizeObserver(scheduleMouseLayout).observe($('workspace'));
+function closePanels(focus=true,dismissMouse=false){
+  if(dismissMouse&&activePanel==='mouse-panel')mousePanelChoice='closed';
   $('lock-text').value='';
   document.querySelectorAll('.panel').forEach(panel=>panel.hidden=true);
   document.querySelectorAll('[data-panel]').forEach(button=>button.setAttribute('aria-expanded','false'));
-  activePanel=null;$('desktop').classList.remove('keyboard-open');updateControlState();if(focus)$('screen').focus({preventScroll:true});
+  activePanel=null;$('desktop').classList.remove('keyboard-open','mouse-docked','keyboard-docked');updateControlState();if(focus)$('screen').focus({preventScroll:true});scheduleMouseLayout();
 }
 function openPanel(id){
-  const closing=activePanel===id;release();closePanels(false);if(closing){$('screen').focus({preventScroll:true});return;}
-  activePanel=id;$(id).hidden=false;$('desktop').classList.toggle('keyboard-open',id==='keyboard-panel');if(id==='keyboard-panel')$('desktop').style.setProperty('--keyboard-space',`${$('keyboard-panel').offsetHeight+20}px`);document.querySelectorAll(`[data-panel="${id}"]`).forEach(button=>button.setAttribute('aria-expanded','true'));updateControlState();
+  const closing=activePanel===id;release();closePanels(false,closing);if(closing){$('screen').focus({preventScroll:true});return;}
+  if(id==='mouse-panel')mousePanelChoice='open';
+  activePanel=id;$(id).hidden=false;$('desktop').classList.toggle('keyboard-open',id==='keyboard-panel');if(id==='keyboard-panel')$('desktop').style.setProperty('--keyboard-space',`${$('keyboard-panel').offsetHeight+20}px`);document.querySelectorAll(`[data-panel="${id}"]`).forEach(button=>button.setAttribute('aria-expanded','true'));updateControlState();updateMouseLayout();updateKeyboardLayout();
 }
 document.querySelectorAll('[data-panel]').forEach(button=>button.addEventListener('click',()=>openPanel(button.dataset.panel)));
-document.querySelectorAll('[data-close-panel]').forEach(button=>button.addEventListener('click',()=>{release();closePanels();}));
-function collapseToolbar(collapse){closePanels();$('desktop').classList.toggle('toolbar-collapsed',collapse);$('show-toolbar').hidden=!collapse;layoutVideo();}
+document.querySelectorAll('[data-close-panel]').forEach(button=>button.addEventListener('click',()=>{release();closePanels(true,true);}));
+function collapseToolbar(collapse){if(collapse)mousePanelChoice='closed';closePanels(true,true);$('desktop').classList.toggle('toolbar-collapsed',collapse);$('show-toolbar').hidden=!collapse;layoutVideo();}
 $('collapse-toolbar').addEventListener('click',()=>collapseToolbar(true));$('show-toolbar').addEventListener('click',()=>collapseToolbar(false));
 async function toggleFullscreen(){
   release();
@@ -380,7 +417,8 @@ async function enterDesktop(){
   setDisplays(available);
   const capabilities=await api('display-capabilities');virtualSupported=capabilities.virtualDisplay===true;blackoutSupported=capabilities.physicalBlackout===true;
   $('virtual-status').textContent=virtualSupported?t("An independent remote display can be created."):t("This system does not support virtual displays.");updateVirtualControls();
-  $('login').hidden=true;$('desktop').hidden=false;document.body.classList.add('session');$('desktop').append($('message'));retryCount=0;forceH264=false;layoutVideo();renderQuality();await startPeer();
+  if($('desktop').hidden)mousePanelChoice='auto';
+  $('login').hidden=true;$('desktop').hidden=false;document.body.classList.add('session');$('desktop').append($('message'));retryCount=0;forceH264=false;layoutVideo();scheduleMouseLayout();renderQuality();await startPeer();
 }
 async function resumeRememberedBrowser(){
   if(!authentication)return;
@@ -430,7 +468,7 @@ async function changeDisplay(){
 $('display').addEventListener('change',changeDisplay);$('quality').addEventListener('change',changeDisplay);
 $('release').addEventListener('click',()=>{release();message(t("All keys released."));});$('emergency-release').addEventListener('click',()=>{release();$('screen').blur();message(t("Input released."));});
 $('control-state').addEventListener('click',()=>{if(dragging){release();return;}if(sessionInfo?.requiresAccountVerification){openPanel('privacy-panel');return;}if(!inputAllowed)message(t("Check the session status and Accessibility access on the host Mac."));else{$('screen').focus({preventScroll:true});}});
-$('view-only').addEventListener('click',()=>{release();viewOnly=!viewOnly;$('view-only').setAttribute('aria-pressed',String(viewOnly));$('view-only').textContent=viewOnly?t("Resume keyboard and mouse control"):t("Switch to view only");updateControlState();});
+$('view-only').addEventListener('click',()=>{release();viewOnly=!viewOnly;$('view-only').setAttribute('aria-pressed',String(viewOnly));renderTouchControls();updateControlState();});
 function tapKey(code){for(const action of ['down','up'])send({type:'key',code,action,modifiers:modifiers()});}
 function shortcut(codes,preserveTouches=false){
   release({preserveTouches});const down=[];for(const code of codes){down.push(code);send({type:'key',code,action:'down',modifiers:down.map(c=>modifierName[c]).filter(Boolean)});}
@@ -470,8 +508,42 @@ function pointerInput(action,point=lastPoint,button=0,event={}){setPoint(point);
 function move(point,event={}){lastMove=pointerInput('move',point,0,event);if(!moveFrame)moveFrame=requestAnimationFrame(()=>{if(lastMove)send(lastMove,true);lastMove=null;moveFrame=null;});}
 function clickAt(button){for(const action of ['down','up'])send(pointerInput(action,lastPoint,button));}
 $('left-click').addEventListener('click',()=>clickAt(0));$('right-click').addEventListener('click',()=>clickAt(2));
-$('drag-toggle').addEventListener('click',()=>{dragging=!dragging;send(pointerInput(dragging?'down':'up'));$('drag-toggle').setAttribute('aria-pressed',String(dragging));updateControlState();if(dragging)closePanels();});
-$('touch-mode').addEventListener('change',()=>{release();$('touch-help').textContent=$('touch-mode').value==='trackpad'?t("Slide one finger to move the pointer, tap to click, long-press to right-click, and scroll with two fingers. Enable Drag to drag items."):t("Tap the matching position on screen, hold and move to drag, long-press to right-click, and scroll with two fingers.");});
+$('drag-toggle').addEventListener('click',()=>{dragging=!dragging;send(pointerInput(dragging?'down':'up'));$('drag-toggle').setAttribute('aria-pressed',String(dragging));updateControlState();if(dragging){if($('desktop').classList.contains('mouse-docked'))$('screen').focus({preventScroll:true});else closePanels(true,true);}});
+function renderTouchControls(){
+  document.querySelectorAll('[data-touch-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.touchMode===$('touch-mode').value)));
+  $('touch-help').textContent=$('touch-mode').value==='trackpad'?t("Slide to move. Tap to click."):t("Tap to point. Hold to drag.");
+  $('view-only').textContent=viewOnly?t("Resume control"):t("View only");
+  $('view-only').title=viewOnly?t("Resume keyboard and mouse control"):t("Switch to view only");
+}
+$('touch-mode').addEventListener('change',()=>{release();renderTouchControls();});
+document.querySelectorAll('[data-touch-mode]').forEach(button=>button.addEventListener('click',()=>{$('touch-mode').value=button.dataset.touchMode;$('touch-mode').dispatchEvent(new Event('change'));}));
+function startTouchPair(){
+  const pair=Core.touchPair(touches),rect=$('surface').getBoundingClientRect();
+  const fit=Core.surfaceSize($('video').videoWidth,$('video').videoHeight,$('screen').clientWidth,$('screen').clientHeight,'fit',window.devicePixelRatio);
+  if(!pair||!$('video').videoWidth||!fit.width)return null;
+  const ratio=rect.width/fit.width;
+  return {origin:pair,width:rect.width,fitWidth:fit.width,local:ratio>1.02,source:Core.point(rect,pair.x,pair.y,true)};
+}
+function updateTouchPair(gesture){
+  if(touchGesture!==gesture||gesture.finished||gesture.peak!==2||touches.size!==2)return;
+  const pair=Core.touchPair(touches),view=gesture.pair;
+  if(!pair||!view)return;
+  if(view.origin.distance<20){gesture.pair=startTouchPair();return;}
+  if(Math.abs(pair.distance-view.origin.distance)>Math.max(10,view.origin.distance*.08))view.local=true;
+  if(view.local){
+    const width=Math.max(Math.min(view.fitWidth,view.width),Math.min(Math.max(8*view.fitWidth,view.width),view.width*pair.distance/view.origin.distance));
+    const fit=Core.surfaceSize($('video').videoWidth,$('video').videoHeight,$('screen').clientWidth,$('screen').clientHeight,'fit',window.devicePixelRatio);
+    setGestureZoom(width/fit.width,{source:view.source,client:pair});
+    if(!gesture.viewUpdated){gesture.viewUpdated=true;sendStreamFeedback(connectionEpoch);}
+  }else if(performance.now()>=gesture.scrollAfter&&canInput()){
+    send({type:'scroll',deltaX:0,deltaY:Math.max(-2000,Math.min(2000,(gesture.lastY-pair.y)*2)),displayID:Number($('display').value),modifiers:modifiers()});
+  }
+  gesture.lastY=pair.y;
+}
+function flushTouchPair(){
+  if(touchFrame)cancelAnimationFrame(touchFrame);touchFrame=null;
+  if(touchGesture?.multi)updateTouchPair(touchGesture);
+}
 function touchStart(event){
   touches.set(event.pointerId,{x:event.clientX,y:event.clientY});
   if(touches.size>1){
@@ -484,12 +556,15 @@ function touchStart(event){
     }
     touchGesture.peak=Math.max(touchGesture.peak,touches.size);
     touchGesture.lastY=[...touches.values()].reduce((sum,p)=>sum+p.y,0)/touches.size;
+    if(touches.size===2&&touchGesture.peak===2)touchGesture.pair=startTouchPair();
+    if(touches.size>2&&touchFrame){cancelAnimationFrame(touchFrame);touchFrame=null;}
     if(touches.size===4&&!touchGesture.finished)touchGesture.origin=new Map(touches);
     if(touches.size>4)touchGesture.finished=true;
     return;
   }
   const direct=$('touch-mode').value==='direct',point=Core.point($('surface').getBoundingClientRect(),event.clientX,event.clientY,true);
-  touchGesture={x:event.clientX,y:event.clientY,startX:event.clientX,startY:event.clientY,moved:false,down:false};
+  touchGesture={x:event.clientX,y:event.clientY,startX:event.clientX,startY:event.clientY,moved:false,down:false,input:canInput()&&(!direct||!!Core.point($('surface').getBoundingClientRect(),event.clientX,event.clientY))};
+  if(!touchGesture.input)return;
   if(direct&&point)setPoint(point);
   $('remote-cursor').hidden=false;
   longPressTimer=setTimeout(()=>{if(!touchGesture||touchGesture.moved||touchGesture.multi)return;if(touchGesture.down)send(pointerInput('up'));clickAt(2);touchGesture.long=true;touchGesture.down=false;},600);
@@ -502,12 +577,12 @@ function touchMove(event){
       const action=Core.fourFingerAction(touchGesture.origin,touches);
       if(action){touchGesture.finished=true;desktopAction(action,true);}
     }else if(touches.size===2&&touchGesture.peak===2){
-      const y=[...touches.values()].reduce((sum,p)=>sum+p.y,0)/2;
-      if(performance.now()>=touchGesture.scrollAfter)send({type:'scroll',deltaX:0,deltaY:Math.max(-2000,Math.min(2000,(touchGesture.lastY-y)*2)),displayID:Number($('display').value),modifiers:modifiers()});
-      touchGesture.lastY=y;
+      // Process both pointer updates together so parallel finger motion is not mistaken for a pinch.
+      if(!touchFrame){const gesture=touchGesture;touchFrame=requestAnimationFrame(()=>{touchFrame=null;updateTouchPair(gesture);});}
     }
     return;
   }
+  if(!canInput()||!touchGesture.input)return;
   const dx=event.clientX-touchGesture.x,dy=event.clientY-touchGesture.y;
   if(Math.hypot(event.clientX-touchGesture.startX,event.clientY-touchGesture.startY)>5){touchGesture.moved=true;clearTimeout(longPressTimer);}
   if($('touch-mode').value==='direct'&&touchGesture.moved&&!touchGesture.down&&!touchGesture.long&&!dragging){send(pointerInput('down'));touchGesture.down=true;}
@@ -518,47 +593,49 @@ function touchMove(event){
 }
 function touchEnd(event){
   clearTimeout(longPressTimer);if(!touches.has(event.pointerId))return;
+  if(touches.size===2)flushTouchPair();
   touches.delete(event.pointerId);
-  if(touchGesture?.multi){touchGesture.finished=true;if(!touches.size)touchGesture=null;return;}
-  if(touchGesture&&!touchGesture.multi&&!touchGesture.long){if(touchGesture.down)send(pointerInput('up'));else if(!touchGesture.moved&&!dragging)clickAt(0);}
+  if(touchGesture?.multi){if(touchGesture.viewUpdated)sendStreamFeedback(connectionEpoch);touchGesture.finished=true;if(!touches.size)touchGesture=null;return;}
+  if(canInput()&&touchGesture?.input&&!touchGesture.multi&&!touchGesture.long){if(touchGesture.down)send(pointerInput('up'));else if(!touchGesture.moved&&!dragging)clickAt(0);}
   if(!touches.size)touchGesture=null;
 }
 $('screen').addEventListener('pointerdown',event=>{
-  if(panPointer(event,'down'))return;
-  if(!canInput())return;const point=Core.point($('surface').getBoundingClientRect(),event.clientX,event.clientY);if(!point&&!(event.pointerType==='touch'&&$('touch-mode').value==='trackpad'))return;
-  event.preventDefault();if(activePanel){release();closePanels(false);}$('screen').focus({preventScroll:true});$('screen').setPointerCapture(event.pointerId);
-  if(event.pointerType==='touch'){touchStart(event);return;}$('remote-cursor').hidden=true;mouseButtons.add(event.button);send(pointerInput('down',point,Math.min(2,event.button),event));
+  if(event.pointerType==='touch'){
+    if(!connected||sessionInfo?.recovering||sessionInfo?.requiresAccountVerification||sessionInfo?.state==='unavailable')return;
+    event.preventDefault();if(activePanel&&!$('desktop').matches('.mouse-docked, .keyboard-docked')){release();closePanels(false,true);}$('screen').focus({preventScroll:true});$('screen').setPointerCapture(event.pointerId);touchStart(event);return;
+  }
+  if(!canInput())return;const point=Core.point($('surface').getBoundingClientRect(),event.clientX,event.clientY);if(!point)return;
+  event.preventDefault();if(activePanel&&!$('desktop').matches('.mouse-docked, .keyboard-docked')){release();closePanels(false,true);}$('screen').focus({preventScroll:true});$('screen').setPointerCapture(event.pointerId);
+  $('remote-cursor').hidden=true;mouseButtons.add(event.button);send(pointerInput('down',point,Math.min(2,event.button),event));
 });
 $('screen').addEventListener('pointermove',event=>{
-  if(panPointer(event,'move'))return;
   if(event.pointerType==='touch'){if(touches.has(event.pointerId)){event.preventDefault();touchMove(event);}return;}
   const point=Core.point($('surface').getBoundingClientRect(),event.clientX,event.clientY,mouseButtons.size>0);if(point)move(point,event);
 });
 $('screen').addEventListener('pointerup',event=>{
-  if(panPointer(event,'up'))return;
   if(event.pointerType==='touch'){event.preventDefault();touchEnd(event);return;}
   if(!mouseButtons.has(event.button))return;mouseButtons.delete(event.button);const point=Core.point($('surface').getBoundingClientRect(),event.clientX,event.clientY,true);if(point)send(pointerInput('up',point,Math.min(2,event.button),event));
 });
-$('screen').addEventListener('pointercancel',release);$('screen').addEventListener('lostpointercapture',event=>{if(mouseButtons.size||touches.has(event.pointerId)||panDrag?.id===event.pointerId)release();});
+$('screen').addEventListener('pointerup',scheduleMouseLayout);
+$('screen').addEventListener('pointercancel',release);$('screen').addEventListener('lostpointercapture',event=>{if(mouseButtons.size||touches.has(event.pointerId))release();});
 $('screen').addEventListener('contextmenu',event=>event.preventDefault());
 $('screen').addEventListener('wheel',event=>{
   const scale=event.deltaMode===1?16:event.deltaMode===2?500:1;
-  if(panView||(event.altKey&&!event.ctrlKey&&!event.metaKey)){event.preventDefault();release();$('screen').scrollBy(event.deltaX*scale,event.deltaY*scale);return;}
+  if(event.altKey&&!event.ctrlKey&&!event.metaKey){event.preventDefault();release();$('screen').scrollBy(event.deltaX*scale,event.deltaY*scale);return;}
   if(!canInput()||event.ctrlKey||event.metaKey)return;event.preventDefault();const point=Core.point($('surface').getBoundingClientRect(),event.clientX,event.clientY);if(point)send(pointerInput('move',point,0,event));
   send({type:'scroll',deltaX:Math.max(-2000,Math.min(2000,event.deltaX*scale)),deltaY:Math.max(-2000,Math.min(2000,event.deltaY*scale)),displayID:Number($('display').value),modifiers:modifiers(event)});
 },{passive:false});
 $('screen').addEventListener('keydown',event=>{
-  if(panView){event.preventDefault();if(event.key==='Escape')setViewPanning(false);return;}
   if(event.ctrlKey&&event.altKey&&event.shiftKey){event.preventDefault();release();$('screen').blur();message(t("Keyboard and mouse released. Click the screen to resume."));return;}
   if(event.isComposing||event.key==='Process')return;if(event.key==='Escape'&&document.fullscreenElement){release();return;}
   if(!canInput())return;event.preventDefault();heldKeys.add(event.code);send({type:'key',action:'down',code:event.code,modifiers:modifiers(event)});
 });
 $('screen').addEventListener('keyup',event=>{if(!heldKeys.has(event.code))return;event.preventDefault();heldKeys.delete(event.code);send({type:'key',action:'up',code:event.code,modifiers:modifiers(event)});});
 $('screen').addEventListener('blur',release);
-document.addEventListener('keydown',event=>{if(event.key==='Escape'&&activePanel){event.preventDefault();release();closePanels();}});
-window.addEventListener('blur',release);document.addEventListener('visibilitychange',()=>{if(document.hidden)release();});window.addEventListener('pagehide',()=>{release();if(peer)peer.close();});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&activePanel){event.preventDefault();release();closePanels(true,true);}});
+window.addEventListener('blur',release);document.addEventListener('visibilitychange',()=>{if(document.hidden)release();else scheduleMouseLayout();});window.addEventListener('pagehide',()=>{release();if(peer)peer.close();});
 VelaI18n.ready.then(async()=>{VelaI18n.apply();updateControlState();await refreshAuthentication();await resumeRememberedBrowser();});
-window.addEventListener('vela-language-change',()=>{updateControlState();updateVirtualSummary();updateFullscreen();renderQuality();if(connected)renderSessionOverlay();});
+window.addEventListener('vela-language-change',()=>{updateControlState();updateVirtualSummary();updateFullscreen();renderQuality();renderTouchControls();if(connected)renderSessionOverlay();});
 
 // Decorative login scene. Its clock stops while the page or login is hidden.
 (()=>{

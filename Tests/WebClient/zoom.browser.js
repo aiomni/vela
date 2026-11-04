@@ -36,20 +36,12 @@ window.runZoomChecks=async()=>{
   $('view-only').click();__inputs.length=0;const previous=screen.scrollLeft;
   screen.dispatchEvent(new WheelEvent('wheel',{altKey:true,deltaX:100,bubbles:true,cancelable:true}));await wait();
   assert(screen.scrollLeft>previous&&!__inputs.some(input=>['pointer','scroll','key'].includes(input.type)),'view-only permits local inspection without remote input');
-  $('pan-view').click();__inputs.length=0;const dragStart=screen.scrollLeft;
-  for(const [type,clientX] of [['pointerdown',200],['pointermove',100],['pointerup',100]])screen.dispatchEvent(new PointerEvent(type,{pointerId:88,pointerType:'touch',clientX,clientY:200,bubbles:true,cancelable:true}));
-  await wait();assert(panView&&screen.scrollLeft>dragStart,'touch pan mode drags the local enlarged image');
-  assert(!canInput()&&!__inputs.some(input=>['pointer','scroll','key'].includes(input.type)),'touch inspection pauses remote input');
-  screen.dispatchEvent(new KeyboardEvent('keydown',{key:'a',code:'KeyA',bubbles:true,cancelable:true}));
-  assert(!__inputs.some(input=>input.type==='key'),'pan mode does not forward screen keystrokes');
-  $('exit-pan-view').click();assert(!panView&&!canInput()&&viewOnly,'exiting pan mode preserves view-only permissions');
   $('view-only').click();await VelaI18n.setLanguage('zh-Hans');
   assert($('zoom').value==='4'&&$('zoom').selectedOptions[0].textContent===t('400% · Zoom in'),'language switching preserves zoom and translates its controls');
   assert(peer===connection&&token===savedToken&&__requests.filter(path=>path==='offer').length===offers,'zoom and panning preserve the authenticated media session');
   await choose('fit');
   assert(screen.scrollLeft===0&&screen.scrollTop===0&&Number.isFinite(__streamFeedback.viewportWidth),'fit restores the window budget and clears panning');
  }finally{
-  if(panView)setViewPanning(false);
   if(viewOnly!==savedViewOnly)$('view-only').click();
   await VelaI18n.setLanguage(savedLanguage);$('stream-preference').value=savedPreference;$('stream-preference').dispatchEvent(new Event('change'));
   await choose(savedZoom);screen.setPointerCapture=capture;release();
