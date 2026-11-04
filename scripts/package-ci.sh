@@ -53,7 +53,9 @@ done
 rm -rf .build/ci-release
 mkdir -p .build/ci-release
 archive="Vela-${VELA_VERSION}-macOS-arm64-${mode}.zip"
+disk_image="Vela-${VELA_VERSION}-macOS-arm64-${mode}.dmg"
 ditto -c -k --sequesterRsrc --keepParent "$bundle" ".build/ci-release/$archive"
+./scripts/create-dmg.sh "$bundle" ".build/ci-release/$disk_image"
 export CI_ARCHIVE_PATH="$PWD/.build/ci-release/$archive"
 python3 - <<'PY'
 import os, zipfile
@@ -64,15 +66,16 @@ with zipfile.ZipFile(os.environ['CI_ARCHIVE_PATH']) as archive:
 PY
 (
     cd .build/ci-release
-    shasum -a 256 "$archive" > SHA256SUMS
+    shasum -a 256 "$archive" "$disk_image" > SHA256SUMS
 )
 cat > .build/ci-release/release-notes.md <<EOF
 Vela ${VELA_VERSION} for Apple Silicon (arm64), macOS 26 or later.
 
 - Includes the Vela Connect controller.
+- Open the DMG and drag Vela to Applications, or extract the ZIP.
 - Build: ${VELA_BUILD_NUMBER}; commit: $(git rev-parse HEAD).
 - Signature: ${mode}. This workflow does not notarize the app.
 - Unsigned builds are testing artifacts; stable macOS permissions require a fixed signing certificate.
-- Verify the archive against SHA256SUMS.
+- Verify the download against SHA256SUMS.
 EOF
-print -- "Prepared $archive"
+print -- "Prepared $archive and $disk_image"

@@ -58,14 +58,17 @@ Codec checks inject a verified HEVC receiver with stalled decoding, then require
 an authenticated H.264 replacement with restored input and no reconnect loop.
 
 Bundle validation:
-  zsh -n scripts/build-app.sh scripts/package-ci.sh
+  zsh -n scripts/build-app.sh scripts/package-ci.sh scripts/create-dmg.sh
   VELA_VERSION=1.2.3 VELA_BUILD_NUMBER=1 ./scripts/package-ci.sh
-The CI packaging command without signing secrets creates an unsigned testing ZIP
+The CI packaging command without signing secrets creates unsigned testing DMG and ZIP files
 under .build/ci-release and does not replace dist or the installed app. Check both
 bundle versions, the embedded controller, and SHA256SUMS. The release tests assert
 tag-only triggers, manual tag requirements, tag/checkout matching, safe metadata,
 and failure for partial signing configuration. A cloud run requires an existing
 version tag; do not create a production tag solely to test the workflow.
+The disk-image test builds a tiny fixture image, mounts it read-only without
+opening Finder, verifies the app/controller bytes and Applications link, then
+detaches it. For a real bundle, also verify codesign after mounting the DMG.
   ./scripts/build-app.sh release Vela
   codesign --verify --deep --strict dist/Vela.app
   plutil -lint dist/Vela.app/Contents/Info.plist

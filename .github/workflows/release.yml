@@ -101,4 +101,4 @@ jobs:
           sha256sum -c SHA256SUMS
           args=(--verify-tag --title "Vela $RELEASE_TAG" --notes-file release-notes.md)
           if [[ "$PRERELEASE" == true ]]; then args+=(--prerelease); fi
-          gh release create "$RELEASE_TAG" ./*.zip SHA256SUMS "${args[@]}"
+          gh release create "$RELEASE_TAG" ./*.dmg ./*.zip SHA256SUMS "${args[@]}"
