@@ -103,7 +103,7 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
             stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 18),
             stack.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -18)
         ])
-        addressField.placeholderString = "192.168.1.20:8443"
+        addressField.placeholderString = "192.168.1.20:8443 / [fd00::1234]:8443"
         addressField.stringValue = UserDefaults.standard.string(forKey: "lastRemoteAddress") ?? ""
         addressField.widthAnchor.constraint(equalToConstant: 220).isActive = true
         addressField.setAccessibilityLabel(L("Remote computer IP and port"))
@@ -187,7 +187,7 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
                 guard let url = URL(string: raw.hasPrefix("https://") ? raw : "https://\(raw)"),
                       url.scheme == "https", let host = url.host, !host.isEmpty, url.user == nil, url.password == nil,
                       url.query == nil, url.fragment == nil, ["", "/"].contains(url.path), url.port != nil else {
-                    throw RemoteError.message(L("Enter IP:port, for example 192.168.1.20:8443."))
+                    throw RemoteError.message(L("Enter IPv4:port or [IPv6]:port, for example [fd00::1234]:8443."))
                 }
                 baseURL = url
                 let authentication = try await object("authentication")

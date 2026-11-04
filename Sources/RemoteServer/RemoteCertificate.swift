@@ -5,7 +5,7 @@ public enum RemoteCertificate {
     public static func prepare(files: RemoteFiles, addresses: [String]) throws -> String {
         try files.prepare()
         let metadata = files.directory.appendingPathComponent("certificate-addresses.json")
-        let expected = Set(addresses + ["127.0.0.1"]).sorted()
+        let expected = Set(addresses.map { LocalNetwork.canonicalIPv6($0) ?? $0 } + ["127.0.0.1", "::1"]).sorted()
         let saved = (try? Data(contentsOf: metadata)).flatMap { try? JSONDecoder().decode([String].self, from: $0) }
         let exists = FileManager.default.fileExists(atPath: files.certificateURL.path)
         var valid = false

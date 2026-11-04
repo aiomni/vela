@@ -61,6 +61,7 @@ public final class RemotePeer: NSObject {
         let configuration = RTCConfiguration()
         configuration.sdpSemantics = .unifiedPlan
         configuration.iceServers = [] // LAN only: no third-party discovery or relay traffic.
+        configuration.disableIPV6OnWiFi = false
         configuration.continualGatheringPolicy = .gatherContinually
         configuration.bundlePolicy = .maxBundle
         configuration.rtcpMuxPolicy = .require

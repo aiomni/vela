@@ -1,0 +1,53 @@
+{
+  "hidResourceAccess": {
+    "description": "(iokit/common) invalid argument",
+    "deviceCreated": false,
+    "openResult": "0xe00002c2",
+    "opened": false,
+    "reportsSubmitted": 0,
+    "serviceFound": true
+  },
+  "iokitSymbols": {
+    "IOHIDEventCreateDigitizerEvent": true,
+    "IOHIDEventSystemClientDispatchEvent": true,
+    "IOHIDUserDeviceCreateWithProperties": true,
+    "IOHIDUserDeviceHandleReport": true,
+    "IOHIDVirtualServiceClientCreate": true,
+    "IOHIDVirtualServiceClientDispatchEvent": true
+  },
+  "osBuild": "26A434",
+  "osVersion": "27.0.1",
+  "scope": "No device creation, input posting, display changes, or TCC requests.",
+  "sidecarDisplayAgent": {
+    "entitlements": {
+      "com.apple.developer.hid.virtual.device": false,
+      "com.apple.hid.manager.user-access-device": true,
+      "com.apple.iohideventsystem.server": true,
+      "com.apple.private.hid.client.event-dispatch": true,
+      "com.apple.private.hid.client.event-monitor": true
+    },
+    "sha256": "577bb8d30b6df96754ad2559165f67784ca8c70cbfc21c638c4434da07a699db",
+    "touchEvidence": {
+      "binaryMarkers": {
+        "TouchScreenDigitizer": true,
+        "Unable to configure displayUUID": true,
+        "supportsMacOSCompatibleTouchReports": true,
+        "supportsNativeTouches": true
+      },
+      "importInspectionExitCode": 0,
+      "importedSymbols": {
+        "HIDServicePropertiesV17cgDirectDisplayID": true,
+        "HIDServicePropertiesV17displayIdentifier": true,
+        "HIDServicePropertiesV17displayIntegrated": true,
+        "IOHIDUserDeviceCreateWithProperties": true,
+        "IOHIDUserDeviceHandleReport": true,
+        "IOHIDVirtualServiceClientCreate": true,
+        "IOHIDVirtualServiceClientDispatchEvent": true
+      }
+    }
+  },
+  "skyLightSymbols": {
+    "SLSSidecarGestureEventsSupported": true,
+    "kSLSHIDEventTypeDirectTouch": true
+  }
+}

@@ -1,7 +1,8 @@
 import XCTest
 import Foundation
+import Darwin
 import Security
-import RemoteCore
+@testable import RemoteCore
 import RemoteRTC
 import WebRTC
 import CoreVideo
@@ -114,14 +115,106 @@ final class RemoteServerTests: XCTestCase {
             delegate: TestCertificateTrust(expected: try Data(contentsOf: files.certificateURL)), delegateQueue: nil)
         do {
             try await server.start(addresses: [], port: port, files: files, bindAllInterfaces: true) { _ in .json(["ok": true]) }
-            XCTAssertEqual(server.listeningAddresses, ["0.0.0.0"])
+            XCTAssertEqual(Set(server.listeningAddresses), Set(["0.0.0.0", "::"]))
             let url = URL(string: "https://127.0.0.1:\(port)/")!
             let (_, response) = try await session.data(from: url)
             XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+            let ipv6URL = URL(string: "https://[::1]:\(port)/")!
+            let (_, ipv6Response) = try await session.data(from: ipv6URL)
+            XCTAssertEqual((ipv6Response as? HTTPURLResponse)?.statusCode, 200)
             await server.stop()
             XCTAssertTrue(server.listeningAddresses.isEmpty)
             session.invalidateAndCancel()
         } catch { await server.stop(); session.invalidateAndCancel(); throw error }
+    }
+
+    @MainActor
+    func testIPv6HostAndOriginValidation() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vela-ipv6-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = RemoteFiles(directory: directory)
+        var config = RemoteConfiguration()
+        config.password = try PasswordVerifier(password: "ipv6-fixture-password")
+        config.enabled = true; config.port = Int.random(in: 42000...58000)
+        try files.save(config)
+        let host = RemoteHostService(files: files, addressProvider: { [] })
+        await host.tick()
+        let authority = "[::1]:\(config.port)"
+        for (requestHost, origin, expected) in [
+            (authority, "https://\(authority)", 200),
+            ("[0:0:0:0:0:0:0:1]:\(config.port)", "https://[0:0:0:0:0:0:0:1]:\(config.port)", 200),
+            (authority, "https://[::2]:\(config.port)", 403),
+            ("[::2]:\(config.port)", "https://[::2]:\(config.port)", 403)
+        ] {
+            let response = await host.handle(RemoteRequest(method: "GET", path: "/api/authentication",
+                host: requestHost, origin: origin, authorization: nil, contentType: nil, body: Data(), address: "::1"))
+            XCTAssertEqual(response.status, expected)
+        }
+        await host.shutdown()
+    }
+
+    func testIPv6CertificateRenewalPreservesPrivateKey() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vela-ipv6-cert-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = RemoteFiles(directory: directory)
+        _ = try RemoteCertificate.prepare(files: files, addresses: ["192.168.1.2"])
+        let key = try Data(contentsOf: files.keyURL)
+        let fingerprint = try RemoteCertificate.prepare(files: files, addresses: ["192.168.1.2", "fd00::2"])
+        XCTAssertEqual(try Data(contentsOf: files.keyURL), key)
+        XCTAssertEqual(try RemoteCertificate.prepare(files: files, addresses: ["192.168.1.2", "fd00:0:0:0:0:0:0:2"]), fingerprint)
+        let configuration = try String(contentsOf: directory.appendingPathComponent("certificate.cnf"), encoding: .utf8)
+        XCTAssertTrue(configuration.contains("IP:fd00::2"))
+        XCTAssertTrue(configuration.contains("IP:::1"))
+    }
+
+    func testTemporaryIPv6RotationPreservesCertificateAndRememberedDevice() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vela-ipv6-privacy-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = RemoteFiles(directory: directory)
+        let stable: [LocalNetwork.InterfaceAddress] = [
+            .init(interface: "en0", address: "192.168.1.2"),
+            .init(interface: "en0", address: "fd00::2", ipv6Flags: IN6_IFF_AUTOCONF)
+        ]
+        var configuration = RemoteConfiguration()
+        configuration.password = try PasswordVerifier(password: "privacy-fixture-password", iterations: 100_000)
+        let registry = RememberedBrowsers(files: files)
+        let originalFingerprint = try RemoteCertificate.prepare(files: files, addresses: LocalNetwork.addresses(from: stable))
+        let originalCertificate = try Data(contentsOf: files.certificateURL)
+        let binding = try RememberedBrowsers.binding(configuration: configuration, fingerprint: originalFingerprint)
+        let credential = try registry.issue(binding: binding, replacing: nil)
+        for temporary in ["fd00::10", "fd00::11"] {
+            let observed = stable + [.init(interface: "en0", address: temporary, ipv6Flags: IN6_IFF_TEMPORARY)]
+            let selected = LocalNetwork.addresses(from: observed)
+            XCTAssertEqual(selected, ["192.168.1.2", "fd00::2"])
+            let fingerprint = try RemoteCertificate.prepare(files: files, addresses: selected)
+            XCTAssertEqual(fingerprint, originalFingerprint)
+            XCTAssertEqual(try Data(contentsOf: files.certificateURL), originalCertificate)
+            let updatedBinding = try RememberedBrowsers.binding(configuration: configuration, fingerprint: fingerprint)
+            XCTAssertTrue(try registry.validate(credential, binding: updatedBinding))
+        }
+    }
+
+    func testUnreadyIPv6DoesNotPreventIPv4TLSListener() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vela-ipv6-unready-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = RemoteFiles(directory: directory)
+        let selected = LocalNetwork.addresses(from: [
+            .init(interface: "en0", address: "fd00::10", ipv6Flags: IN6_IFF_TENTATIVE),
+            .init(interface: "en0", address: "fd00::11", ipv6Flags: IN6_IFF_DUPLICATED),
+            .init(interface: "en0", address: "fd00::12", ipv6Flags: IN6_IFF_DETACHED)
+        ])
+        _ = try RemoteCertificate.prepare(files: files, addresses: selected)
+        let session = URLSession(configuration: .ephemeral,
+            delegate: TestCertificateTrust(expected: try Data(contentsOf: files.certificateURL)), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        let server = RemoteHTTPS()
+        let port = Int.random(in: 42000...58000)
+        do {
+            try await server.start(addresses: selected, port: port, files: files) { _ in .json(["ok": true]) }
+            let (_, response) = try await session.data(from: URL(string: "https://127.0.0.1:\(port)/")!)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+            await server.stop()
+        } catch { await server.stop(); throw error }
     }
 
     func testErrorResponseIsJSON() throws {

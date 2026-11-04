@@ -171,9 +171,9 @@ public final class RemoteHostService {
         self.server = server
         status.state = "listening"
         status.message = configuration.listenOnAllInterfaces && addressProvider == nil
-            ? "Waiting for a connection · Listening on 0.0.0.0:\(configuration.port)"
+            ? "Waiting for a connection · Listening on 0.0.0.0 and [::]:\(configuration.port)"
             : (addresses.isEmpty ? "Waiting for a LAN connection; currently accessible only from this Mac." : "Waiting for a connection")
-        status.addresses = (addresses.isEmpty ? ["127.0.0.1"] : addresses).map { "https://\($0):\(configuration.port)" }
+        status.addresses = (addresses.isEmpty ? ["127.0.0.1"] : addresses).map { "https://\(LocalNetwork.authority(address: $0, port: configuration.port))" }
     }
     public func shutdown() async {
         record("service-shutdown")
@@ -453,8 +453,7 @@ public final class RemoteHostService {
 
     public func handle(_ request: RemoteRequest) async -> RemoteResponse {
         guard configuration.enabled, server != nil else { return .error("Remote control is off.", status: 503) }
-        let allowedHosts = Set((addresses + ["127.0.0.1", "localhost"]).map { "\($0):\(configuration.port)" })
-        guard allowedHosts.contains(request.host.lowercased()),
+        guard LocalNetwork.allowsAuthority(request.host, addresses: addresses, port: configuration.port),
               request.origin == nil || request.origin == "https://\(request.host)" else {
             return .error("Invalid request origin.", status: 403)
         }

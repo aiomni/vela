@@ -137,23 +137,26 @@ public final class RemoteHTTPS {
         tls.applicationProtocols = ["http/1.1"]
         let context = try NIOSSLContext(configuration: tls)
         let connections = self.connections
-        let bootstrap = ServerBootstrap(group: group)
-            .serverChannelOption(ChannelOptions.backlog, value: 32)
-            .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
-            .childChannelOption(ChannelOptions.socketOption(.tcp_nodelay), value: 1)
-            .childChannelInitializer { channel in
-                guard connections.insert(channel) else { return channel.close() }
-                do {
-                    try channel.pipeline.syncOperations.addHandlers(ConnectionDeadline(connections: connections), NIOSSLServerHandler(context: context))
-                    try channel.pipeline.syncOperations.configureHTTPServerPipeline(withErrorHandling: true)
-                    try channel.pipeline.syncOperations.addHandler(RequestHandler(handler: handler))
-                    return channel.eventLoop.makeSucceededVoidFuture()
-                } catch { connections.remove(channel); return channel.eventLoop.makeFailedFuture(error) }
-            }
         do {
-            let bindAddresses = bindAllInterfaces ? ["0.0.0.0"] : Set(addresses + ["127.0.0.1"]).sorted()
+            let bindAddresses = bindAllInterfaces ? ["0.0.0.0", "::"] : Set(addresses + ["127.0.0.1", "::1"]).sorted()
             for address in bindAddresses {
-                let listener = try await bootstrap.bind(host: address, port: port).get()
+                let bootstrap = ServerBootstrap(group: group)
+                    .serverChannelOption(ChannelOptions.backlog, value: 32)
+                    .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+                    .childChannelOption(ChannelOptions.socketOption(.tcp_nodelay), value: 1)
+                    .childChannelInitializer { channel in
+                        guard connections.insert(channel) else { return channel.close() }
+                        do {
+                            try channel.pipeline.syncOperations.addHandlers(ConnectionDeadline(connections: connections), NIOSSLServerHandler(context: context))
+                            try channel.pipeline.syncOperations.configureHTTPServerPipeline(withErrorHandling: true)
+                            try channel.pipeline.syncOperations.addHandler(RequestHandler(handler: handler))
+                            return channel.eventLoop.makeSucceededVoidFuture()
+                        } catch { connections.remove(channel); return channel.eventLoop.makeFailedFuture(error) }
+                    }
+                let listenerBootstrap = address.contains(":")
+                    ? bootstrap.serverChannelOption(ChannelOptions.Types.SocketOption(level: .ipv6, name: .ipv6_v6only), value: 1)
+                    : bootstrap
+                let listener = try await listenerBootstrap.bind(host: address, port: port).get()
                 listeners.append(listener)
             }
         } catch { await stop(); throw error }

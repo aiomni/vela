@@ -45,7 +45,7 @@ final class RemoteSettingsController: NSObject {
         applyPortButton.target = self; applyPortButton.action = #selector(applyPort)
         passwordButton.target = self; passwordButton.action = #selector(changePassword)
         let portControls = NSStackView(views: [portField, applyPortButton]); portControls.spacing = 8
-        listenModeButton.addItems(withTitles: [L("LAN interfaces only"), L("All IPv4 interfaces (0.0.0.0)")])
+        listenModeButton.addItems(withTitles: [L("LAN interfaces only"), L("All interfaces (IPv4 and IPv6)")])
         listenModeButton.setAccessibilityLabel(L("Remote listening scope"))
         listenModeButton.widthAnchor.constraint(equalToConstant: 240).isActive = true
         listenModeButton.target = self; listenModeButton.action = #selector(changeListenMode)
