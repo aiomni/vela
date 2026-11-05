@@ -18,6 +18,12 @@ Vela is a native macOS desktop companion that keeps your Mac available while you
 - **Native settings:** five sidebar pages with compact grouped controls, a Liquid Glass navigation toolbar, and native switches and sliders. Choose Light, Dark, or Auto appearance; Auto follows the system. Accessibility preferences remain respected.
 - **English and Simplified Chinese:** English is the default regardless of system language. Change the native app in **Settings → General → Language**, Vela Connect in its toolbar, or the website using its language selector. Selections persist independently, and switching does not restart remote sessions.
 
+## Updates
+
+Use **Check for Updates…** in the menu bar, or **Settings → General → Software Update**. Vela checks GitHub Releases once a day by default; automatic checks can be disabled. When a newer signed version is available, click **Install and Restart** to download, verify, install, and reopen Vela. Installing closes the bundled controller and disconnects remote sessions through the normal shutdown and display-recovery path. Manual keep-awake sessions do not resume.
+
+Automatic installation requires a writable app location outside a mounted disk image or App Translocation. ZIP downloads must match GitHub's SHA-256 digest, the current app's certificate-bound designated requirement, and the same signing certificate. Unsigned CI archives and releases signed with a different certificate require manual installation. The installer stages the replacement on the destination volume and restores the old app if replacement or the launch request fails. Vela Connect is updated as part of the main bundle.
+
 ## Requirements
 
 - macOS 26 or later and Swift 6 tooling / Xcode command-line tools.

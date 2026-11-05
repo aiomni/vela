@@ -18,6 +18,7 @@ let package = Package(
         .executableTarget(name: "LockLab", dependencies: ["VelaLocalization"]),
         .target(name: "VelaLocalization", resources: [.copy("Resources/zh-Hans.json")]),
         .target(name: "LidServiceShared"),
+        .target(name: "AppUpdateCore"),
         .target(name: "RemoteNetworkBridge"),
         .target(name: "RemoteCore", dependencies: ["RemoteNetworkBridge"]),
         .target(name: "RemoteDisplayBridge", linkerSettings: [.linkedFramework("CoreGraphics"), .linkedFramework("Foundation")]),
@@ -30,8 +31,9 @@ let package = Package(
             .product(name: "NIOSSL", package: "swift-nio-ssl")],
             resources: [.copy("Web")], swiftSettings: [.swiftLanguageMode(.v5)]),
         .executableTarget(name: "VelaConnect", dependencies: ["VelaLocalization", "RemoteCore", "RemoteRTC"], swiftSettings: [.swiftLanguageMode(.v5)]),
-        .executableTarget(name: "Vela", dependencies: ["VelaLocalization", "LidServiceShared", "RemoteCore", "RemoteServer"], resources: [.copy("Assets")]),
+        .executableTarget(name: "Vela", dependencies: ["VelaLocalization", "LidServiceShared", "RemoteCore", "RemoteServer", "AppUpdateCore"], resources: [.copy("Assets")]),
         .testTarget(name: "VelaLocalizationTests", dependencies: ["VelaLocalization", "RemoteCore"]),
+        .testTarget(name: "AppUpdateCoreTests", dependencies: ["AppUpdateCore"]),
         .testTarget(name: "RemoteCoreTests", dependencies: ["RemoteCore"]),
         .testTarget(name: "RemoteServerTests", dependencies: ["RemoteServer"])
     ]

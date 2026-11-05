@@ -2,6 +2,8 @@ import VelaLocalization
 import AppKit
 import RemoteRTC
 
+runUpdateInstallerIfRequested()
+
 let app = NSApplication.shared
 if let index = CommandLine.arguments.firstIndex(of: "--remote-display-watchdog"), CommandLine.arguments.count > index + 1 {
     app.setActivationPolicy(.prohibited)

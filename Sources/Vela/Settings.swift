@@ -24,6 +24,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     let loginHint = NSTextField(wrappingLabelWithString: "")
     let loginSettingsButton = NSButton(title: L("Open Login Items settings…"), target: nil, action: nil)
     let resetButton = NSButton(title: L("Reset to defaults"), target: nil, action: nil)
+    let updater: AppUpdater
     let remoteSettings: RemoteSettingsController
     private(set) var navigationController: SettingsNavigationController!
     let colorStyleButton = NSPopUpButton()
@@ -56,7 +57,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
          idleThreshold: IdleThreshold = .defaultValue,
          loginItem: any LoginItemServicing = MainAppLoginItem(),
          remoteSettings injectedRemoteSettings: RemoteSettingsController? = nil,
-         appearanceDefaults: UserDefaults = .standard) {
+         appearanceDefaults: UserDefaults = .standard, updater: AppUpdater? = nil) {
+        self.updater = updater ?? AppUpdater(defaults: appearanceDefaults)
         appearancePicker = AppearancePreferencesController(defaults: appearanceDefaults)
         self.remoteSettings = injectedRemoteSettings ?? RemoteSettingsController()
         self.hotKey = hotKey
@@ -159,6 +161,11 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
                 SettingsStyle.row(L("Toggle shortcut"), shortcutButton)
             ]),
             hint,
+            SettingsStyle.heading(L("Software Update")),
+            SettingsStyle.group([
+                SettingsStyle.row(L("Automatically check for updates"), self.updater.automaticSwitch),
+                SettingsStyle.row(L("Vela updates"), self.updater.button, detail: self.updater.detail)
+            ]),
             SettingsStyle.heading(L("Reset")),
             SettingsStyle.group([SettingsStyle.row(L("Reset settings"), resetButton)])
         ])
@@ -245,6 +252,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     }
 
     func refreshLocalizedState() {
+        updater.refreshUI()
         refreshInputMonitoring()
         appearancePicker.refresh()
         navigationController.refreshLanguage()
@@ -293,6 +301,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             try loginItem.unregister()
         }
         try onReset?()
+        updater.reset()
         appearancePicker.reset()
         wakeDuration = .unlimited
         idleThreshold = .defaultValue

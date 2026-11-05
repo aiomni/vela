@@ -203,3 +203,13 @@ Mobile pinch acceptance supersedes the previous input-pausing Pan view UI:
   Design/vela-mobile-pinch-2026-11-04.md
 Run pinch checks in both touch modes at phone portrait and short landscape sizes.
 Synthetic browser checks do not replace physical iOS/Android gesture acceptance.
+
+Software update validation:
+  swift test --filter UpdateTests
+  python3 Tests/Updates/run-signed-fixture.py
+
+The signed update fixture requires the existing fixed signing configuration.
+It builds inert test bundles in a temporary directory, replaces one fixture,
+and relaunches it through LaunchServices. It does not touch installed apps,
+start a remote host, capture input, or acquire keep-awake assertions.
+No signing credentials are printed or stored in the fixtures.

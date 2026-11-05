@@ -34,6 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let activityModeItem = NSMenuItem()
     let watchDetailItem = NSMenuItem()
     let watchModeItem = NSMenuItem()
+    private let updateItem = NSMenuItem()
+    private var updater: AppUpdater!
     private var applicationIcon: NSImage?
     private var statusIcon: NSImage?
     var observers: [(NotificationCenter, NSObjectProtocol)] = []
@@ -103,9 +105,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             } catch { showError(L(error.localizedDescription)) }
         }
+        updater = AppUpdater(defaults: defaults)
         settings = SettingsController(hotKey: hotKey, pet: pet, watchSettings: watchSettings,
                                       wakeDuration: wakeDuration, idleThreshold: idleThreshold,
-                                      remoteSettings: remoteSettings, appearanceDefaults: defaults)
+                                      remoteSettings: remoteSettings, appearanceDefaults: defaults, updater: updater)
         settings.onDuration = { [weak self] duration in self?.setWakeDuration(duration) ?? false }
         settings.onIdleThreshold = { [weak self] threshold in self?.setIdleThreshold(threshold) }
         settings.onWatchMode = { [weak self] mode in self?.activateWatchMode(mode) }
@@ -159,6 +162,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settingsItem = NSMenuItem(title: L("Settings…"), action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
+        updateItem.title = L("Check for Updates…")
+        updateItem.action = #selector(checkForUpdates)
+        updater.onChange = { [weak self] in
+            guard let self else { return }
+            self.updateItem.title = self.updater.updateAvailable ? L("Update Available…") : L("Check for Updates…")
+        }
+        updateItem.target = self
+        menu.addItem(updateItem)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: L("Quit Vela"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
@@ -259,6 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--show-settings") { showSettings() }
         pet.show()
         updateMenu()
+        updater.start()
         if let warning = defaults.string(forKey: "pendingLidRestoreWarning") {
             defaults.removeObject(forKey: "pendingLidRestoreWarning")
             showError(L("Normal closed-lid sleep could not be confirmed after the previous exit. Check pmset -g. If SleepDisabled is still 1, restore it with sudo pmset -a disablesleep 0.\n\n{0}", "\(warning)"))
@@ -624,6 +636,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettings() { settings.show() }
 
+    @objc private func checkForUpdates() {
+        showSettings()
+        settings.navigationController.select(.general)
+        if !updater.updateAvailable { updater.check() }
+    }
+
     func resetSettings() throws {
         try settings.remoteSettings.reset()
         try hotKey.register(.initial)
@@ -720,6 +738,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         powerSourceObserver = nil
         watchTimer?.invalidate()
         watchTimer = nil
+        updater?.stop()
         settings?.finishRecording()
         hotKey.stop()
         lidClient.disconnect()
