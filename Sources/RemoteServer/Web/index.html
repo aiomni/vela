@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#293943"><title>Vela · Remote Desktop</title><link rel="stylesheet" href="/style.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#293943"><title>Vela · Remote Desktop</title><link rel="icon" type="image/svg+xml" href="/companion-icon.svg"><link rel="stylesheet" href="/style.css"></head>
 <body>
 <canvas id="login-backdrop" aria-hidden="true"></canvas>
 <svg class="icon-library" aria-hidden="true"><defs>
@@ -16,7 +16,7 @@
 <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m7 14 5-5 5 5"/></symbol>
 </defs></svg>
 <main>
-<header id="landing-header"><a class="brand" href="/" aria-label="Vela home"><span class="mark" aria-hidden="true">◒</span><strong>Vela</strong></a><div class="language-switch" role="group" aria-label="Language"><button type="button" data-language="en" lang="en" aria-label="English" aria-pressed="true"><span data-no-i18n>EN</span></button><span class="language-divider" aria-hidden="true">/</span><button type="button" data-language="zh-Hans" lang="zh-Hans" aria-label="Chinese (Simplified)" aria-pressed="false"><span data-language-name data-no-i18n>Chinese</span></button></div></header>
+<header id="landing-header"><a class="brand" href="/" aria-label="Vela home"><img class="mark" src="/companion-icon.svg" alt="" aria-hidden="true" width="34" height="34"><strong>Vela</strong></a><div class="language-switch" role="group" aria-label="Language"><button type="button" data-language="en" lang="en" aria-label="English" aria-pressed="true"><span data-no-i18n>EN</span></button><span class="language-divider" aria-hidden="true">/</span><button type="button" data-language="zh-Hans" lang="zh-Hans" aria-label="Chinese (Simplified)" aria-pressed="false"><span data-language-name data-no-i18n>Chinese</span></button></div></header>
 <section id="login" class="login" aria-labelledby="login-title">
   <div class="login-content">
     <div class="login-main">
@@ -37,7 +37,7 @@
 </section>
 <section id="desktop" hidden aria-label="Remote console">
   <header id="toolbar" class="toolbar">
-    <div class="session-brand"><span class="mark">◒</span><div><strong>Vela</strong><span id="connection" role="status">Not connected</span></div></div>
+    <div class="session-brand"><img class="mark" src="/companion-icon.svg" alt="" aria-hidden="true" width="34" height="34"><div><strong>Vela</strong><span id="connection" role="status">Not connected</span></div></div>
     <nav class="tools" aria-label="Remote toolbar">
       <button data-panel="display-panel" aria-controls="display-panel" aria-expanded="false"><svg><use href="#i-screen"/></svg><span>Display</span></button>
       <button data-panel="quality-panel" aria-controls="quality-panel" aria-expanded="false"><svg><use href="#i-quality"/></svg><span>Quality</span></button>

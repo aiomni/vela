@@ -488,7 +488,8 @@ func verifyVela() throws {
     pet.setPalette(.rainbow)
     pet.view.reduceMotion = false
     print("PASS: rainbow material covers squircle, dome, and tablet without circular holes")
-    for (mood, name) in [(StatusPetIconMood.asleep, "asleep"), (.awake, "awake"), (.watching, "watching")] {
+    do {
+        let name = "bot"
         let statusPreview = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 144, pixelsHigh: 144,
                                             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
                                             isPlanar: false, colorSpaceName: .deviceRGB,
@@ -496,7 +497,7 @@ func verifyVela() throws {
         statusPreview.size = NSSize(width: 18, height: 18)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: statusPreview)
-        let icon = makeStatusPetIcon(geometry: pet.view.geometry, mood: mood)
+        let icon = makeStatusPetIcon(geometry: pet.view.geometry)
         precondition(icon.isTemplate)
         icon.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18))
         NSGraphicsContext.restoreGraphicsState()
@@ -510,11 +511,12 @@ func verifyVela() throws {
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: nativePreview)
         icon.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18))
         NSGraphicsContext.restoreGraphicsState()
-        let clearEyes = mood == .watching ? [5, 10] : [6, 11]
-        for x in clearEyes { precondition(nativePreview.colorAt(x: x, y: 9)!.alphaComponent < 0.5) }
-        precondition(nativePreview.colorAt(x: 9, y: 9)!.alphaComponent > 0.8)
         try nativePreview.representation(using: .png, properties: [:])!
             .write(to: directory.appendingPathComponent("status-pet-\(name)-18px.png"))
+        for (x, y) in [(10, 5), (13, 4)] {
+            precondition(nativePreview.colorAt(x: x, y: y)!.alphaComponent < 0.5)
+        }
+        precondition(nativePreview.colorAt(x: 9, y: 9)!.alphaComponent > 0.8)
     }
     for palette in [PetPalette.stars, .neon, .neonFlow, .siri] {
         var previous: [UInt8]?
@@ -590,11 +592,10 @@ func verifyVela() throws {
     }
     pet.view.moodOverride = nil
     print("PASS: all mood previews rendered")
-    for palette in PetPalette.selectable {
-        let icon = makeApplicationIcon(geometry: pet.view.geometry, enabled: true, palette: palette, customColor: .systemPink)
-        let bitmap = NSBitmapImageRep(data: icon.tiffRepresentation!)!
-        try bitmap.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("palette-\(palette.rawValue).png"))
-    }
+    let applicationIcon = makeApplicationIcon(geometry: pet.view.geometry)
+    let applicationBitmap = NSBitmapImageRep(data: applicationIcon.tiffRepresentation!)!
+    try applicationBitmap.representation(using: .png, properties: [:])!
+        .write(to: directory.appendingPathComponent("app-icon-bot.png"))
     pet.setCustomColor(.systemPink)
     precondition(pet.view.palette == .custom)
     let restoredPet = try PetController(defaults: defaults)
@@ -767,7 +768,7 @@ func verifyVela() throws {
     let firstDeadline = delegate.wakeDeadline!
     let timedAssertion = delegate.power.assertion!
     precondition(delegate.status.button!.title.contains(":"))
-    precondition(delegate.status.button!.image !== waitingIcon)
+    precondition(delegate.status.button!.image === waitingIcon)
     delegate.setWakeDuration(.minutes(2))
     precondition(delegate.wakeDeadline! > firstDeadline && WakeDuration.load(from: defaults) == .minutes(2))
     let freshLaunch = AppDelegate(defaults: defaults)
@@ -854,13 +855,9 @@ func verifyVela() throws {
     let onIcon = NSBitmapImageRep(data: NSApp.applicationIconImage.tiffRepresentation!)!
     let offColor = offIcon.colorAt(x: offIcon.pixelsWide / 2, y: offIcon.pixelsHigh / 2)!.usingColorSpace(.deviceRGB)!
     precondition(abs(offColor.redComponent - offColor.blueComponent) < 0.03)
-    // Sample the lower body, avoiding animated eyes and pale gradient crossings.
-    let saturation = [0.4, 0.5, 0.6].map { fraction in
-        let sample = onIcon.colorAt(x: Int(Double(onIcon.pixelsWide) * fraction), y: Int(Double(onIcon.pixelsHigh) * 0.65))!.usingColorSpace(.deviceRGB)!
-        let channels = [sample.redComponent, sample.greenComponent, sample.blueComponent]
-        return channels.max()! - channels.min()!
-    }.max()!
-    precondition(saturation > 0.2)
+    precondition(offIcon.representation(using: .png, properties: [:]) == onIcon.representation(using: .png, properties: [:]),
+        "Application branding must remain stable when keep-awake changes")
+    precondition(offColor.redComponent < 0.1 && offColor.alphaComponent > 0.9)
     precondition(delegate.status.button!.image!.isTemplate)
     try onIcon.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("app-icon-on.png"))
     try offIcon.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("app-icon-off.png"))
@@ -868,7 +865,7 @@ func verifyVela() throws {
     delegate.status.menu!.performActionForItem(at: 0)
     precondition(!delegate.power.isEnabled && delegate.pet.panel.isVisible)
     precondition(delegate.status.button!.image!.isTemplate)
-    print("PASS: application icon color follows wake state / menu bar pet remains a readable template")
+    print("PASS: monochrome application icon stays fixed across wake states / menu bar companion remains a readable template")
     let savedPalette = delegate.pet.view.palette
     delegate.pet.setPalette(.stars)
     let savedPetSize = delegate.pet.petSize

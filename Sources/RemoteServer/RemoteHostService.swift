@@ -959,6 +959,7 @@ public final class RemoteHostService {
         case "/client-core.js": name = "client-core.js"; mime = "text/javascript; charset=utf-8"
         case "/i18n.js": name = "i18n.js"; mime = "text/javascript; charset=utf-8"
         case "/locales/zh-Hans.json": name = "locales/zh-Hans.json"; mime = "application/json; charset=utf-8"
+        case "/companion-icon.svg": name = "companion-icon.svg"; mime = "image/svg+xml"
         case "/style.css": name = "style.css"; mime = "text/css; charset=utf-8"
         default: return nil
         }

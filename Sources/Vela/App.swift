@@ -34,8 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let activityModeItem = NSMenuItem()
     let watchDetailItem = NSMenuItem()
     let watchModeItem = NSMenuItem()
-    private var applicationIcons: [Bool: NSImage] = [:]
-    private var statusIcons: [StatusPetIconMood: NSImage] = [:]
+    private var applicationIcon: NSImage?
+    private var statusIcon: NSImage?
     var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private let injectedRemoteSettings: RemoteSettingsController?
     private var remoteRuntime: RemoteHostRuntime?
@@ -72,7 +72,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pet.onAgentToggle = { [weak self] in self?.toggleAgentWatch() }
         pet.onSettings = { [weak self] in self?.showSettings() }
         pet.onPaletteChange = { [weak self] in
-            self?.applicationIcons.removeAll()
             self?.updateMenu()
         }
         watchSettings = WatchSettingsController(defaults: defaults)
@@ -573,21 +572,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pet?.view.menu?.items.first?.title = toggleItem.title
         petDisplayItem.title = pet?.panel.isVisible == true ? L("Hide companion") : L("Show companion")
         petDisplayItem.state = pet?.panel.isVisible == true ? .on : .off
-        if let pet {
-            let enabled = power.isEnabled
-            if applicationIcons[enabled] == nil {
-                applicationIcons[enabled] = makeApplicationIcon(geometry: pet.view.geometry, enabled: enabled, palette: pet.view.palette, customColor: pet.view.customColor, shape: pet.view.shape, eyeColor: pet.view.eyeColor, restColor: pet.view.restColor, restPalette: pet.view.restPalette, restColorMode: pet.view.restColorMode, colorMode: pet.view.colorMode)
-            }
-            NSApp.applicationIconImage = applicationIcons[enabled]
+        if let pet, applicationIcon == nil {
+            applicationIcon = makeApplicationIcon(geometry: pet.view.geometry)
+            statusIcon = makeStatusPetIcon(geometry: pet.view.geometry)
         }
+        if let applicationIcon { NSApp.applicationIconImage = applicationIcon }
         if let button = status?.button {
-            let enabled = power.isEnabled
-            let iconMood: StatusPetIconMood = duty.phase == .agentStandby || duty.phase == .grace
-                ? .watching : !enabled ? .asleep : idleTimer.phase == .waiting ? .watching : .awake
-            if statusIcons[iconMood] == nil, let pet {
-                statusIcons[iconMood] = makeStatusPetIcon(geometry: pet.view.geometry, mood: iconMood)
-            }
-            button.image = statusIcons[iconMood]
+            button.image = statusIcon
             let stateLabel: String?
             if power.isEnabled && duty.source != .agent {
                 switch idleTimer.phase {

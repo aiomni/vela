@@ -21,6 +21,7 @@ class Handler(BaseHTTPRequestHandler):
             "/frame-identity-worker.js": (WEB / "frame-identity-worker.js", "text/javascript"),
             "/lossless.js": (WEB / "lossless.js", "text/javascript"),
             "/client-core.js": (WEB / "client-core.js", "text/javascript"),
+            "/companion-icon.svg": (WEB / "companion-icon.svg", "image/svg+xml"),
             "/style.css": (WEB / "style.css", "text/css"),
             "/locales/zh-Hans.json": (WEB / "locales/zh-Hans.json", "application/json"),
             "/fixture.js": (TESTS / "mock-session.js", "text/javascript"),

@@ -10,7 +10,7 @@ Vela is a native macOS desktop companion that keeps your Mac available while you
 
 ## Features
 
-- **Desktop companion:** draggable shapes, expressive eyes, automatic moods, independent awake/resting colors, gradients, and live Metal effects. Hide the companion without stopping other features.
+- **Desktop companion:** draggable shapes, expressive eyes, automatic moods, independent awake/resting colors, gradients, and live Metal effects. Hide the companion without stopping other features. The app and menu bar use a fixed monochrome companion icon, independent of companion appearance and keep-awake state.
 - **Keep-awake controls:** keep the display awake, allow display sleep while the system runs, or continue with the lid closed. Choose an unlimited or custom duration; timed mode can start after continuous physical inactivity and reset on input.
 - **Agent watch:** detect Claude Code, Codex, Gemini CLI, Cursor Agent, Copilot CLI, Aider, OpenCode, and custom executable names. Choose working-agent detection or process-presence keep-awake, with an idle grace period and battery/thermal protection.
 - **Remote desktop:** connect with a WebRTC browser or the included **Vela Connect** Mac app. Select displays and streaming quality, send keyboard/mouse input and text, and use touch controls or desktop-switching gestures.
