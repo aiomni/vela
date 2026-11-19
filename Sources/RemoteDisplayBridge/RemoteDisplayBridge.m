@@ -17,6 +17,18 @@ bool APDisplayPowerIsAvailable(void) {
            APDisplaySymbol("SLSGetDisplayList", "CGSGetDisplayList");
 }
 
+bool APDisplayIsPhysical(CGDirectDisplayID display, bool *physical) {
+    typedef CFDictionaryRef (*CopyDisplayInfo)(CGDirectDisplayID);
+    CopyDisplayInfo copyInfo = (CopyDisplayInfo)dlsym(RTLD_DEFAULT, "CGSCopyDisplayInfoDictionary");
+    if (!copyInfo || !physical) return false;
+    NSDictionary *info = CFBridgingRelease(copyInfo(display));
+    NSNumber *virtualDevice = info[@"kCGDisplayIsVirtualDevice"];
+    NSNumber *airPlay = info[@"kCGDisplayIsAirPlay"];
+    if (![virtualDevice isKindOfClass:NSNumber.class]) return false;
+    *physical = !virtualDevice.boolValue && !airPlay.boolValue;
+    return true;
+}
+
 CGError APConfigureDisplayEnabled(CGDisplayConfigRef configuration, CGDirectDisplayID display, bool enabled) {
     typedef CGError (*Function)(CGDisplayConfigRef, CGDirectDisplayID, bool);
     Function function = (Function)APDisplaySymbol("SLSConfigureDisplayEnabled", "CGSConfigureDisplayEnabled");

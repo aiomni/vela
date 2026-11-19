@@ -2,6 +2,18 @@ import Foundation
 import Darwin
 import RemoteNetworkBridge
 
+public enum RemotePrivacyMode: String, Codable, CaseIterable, Sendable {
+    case off, lockedOrAsleep, always
+
+    public func requiresIsolation(locked: Bool, physicalDisplaysAsleep: Bool) -> Bool {
+        switch self {
+        case .off: return false
+        case .lockedOrAsleep: return locked || physicalDisplaysAsleep
+        case .always: return true
+        }
+    }
+}
+
 public struct RemoteConfiguration: Codable, Equatable, Sendable {
     public var enabled = false
     public var port = 8443
@@ -12,11 +24,12 @@ public struct RemoteConfiguration: Codable, Equatable, Sendable {
     public var generation = UUID().uuidString
     public var disconnectGeneration = 0
     public var batteryFloor = 20
+    public var privacyMode = RemotePrivacyMode.off
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
         case enabled, port, password, generation, disconnectGeneration, batteryFloor
-        case authenticationMode, systemAccount, listenOnAllInterfaces
+        case authenticationMode, systemAccount, listenOnAllInterfaces, privacyMode
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -27,6 +40,7 @@ public struct RemoteConfiguration: Codable, Equatable, Sendable {
         generation = try c.decode(String.self, forKey: .generation)
         disconnectGeneration = try c.decode(Int.self, forKey: .disconnectGeneration)
         batteryFloor = try c.decode(Int.self, forKey: .batteryFloor)
+        privacyMode = c.contains(.privacyMode) ? try c.decode(RemotePrivacyMode.self, forKey: .privacyMode) : .off
         // Only an absent legacy field migrates. Null/unknown modes fail closed.
         authenticationMode = c.contains(.authenticationMode)
             ? try c.decode(RemoteAuthenticationMode.self, forKey: .authenticationMode) : .customPassword
@@ -70,6 +84,7 @@ public struct RemoteHostStatus: Codable, Sendable {
     public var screenPermission = false
     public var inputPermission = false
     public var connected = false
+    public var privacyReadiness: String?
     public var fingerprint: String?
     public var updated = Date()
     public var pid = Int32(0)

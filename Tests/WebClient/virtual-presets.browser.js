@@ -53,3 +53,76 @@ window.runVirtualPresetChecks = async () => {
   assert(__peer === peer && __requests.filter(path => path === 'offer').length === offers, 'presets and language changes preserve the existing peer');
   return {passed:results.length,presets:options.length,requests:__virtualRequests.length};
 };
+
+window.runDisplayOverviewChecks = async () => {
+  const $ = id => document.getElementById(id), results = [];
+  const assert = (value, label) => { if (!value) throw Error(label); results.push(label); };
+  const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+  const until = async (condition, label) => {
+    for (let i = 0; i < 125 && !condition(); i++) await wait(25);
+    assert(condition(), label);
+  };
+  const card = id => document.querySelector(`#display-grid [data-display-id="${id}"]`);
+  const toggle = document.querySelector('[data-panel="display-panel"]');
+  const savedSession = __sessionFixture;
+  const canvas = document.createElement('canvas');
+  const fixture = { physical: [
+    {id:1,name:'Main Display',width:2560,height:1600},
+    {id:2,name:'External Display',width:1920,height:1080}
+  ], virtual:false, selected:1, previews:[], jpeg:canvas.toDataURL('image/jpeg').split(',')[1] };
+  __displayOverviewFixture = fixture;
+  try {
+    if ($('desktop').hidden) { $('password').value = 'fixture'; $('login-form').requestSubmit(); }
+    await until(() => !$('desktop').hidden && $('display').options.length === 2, 'poll lists both physical displays');
+    assert(fixture.previews.length === 0, 'closed overview requests no thumbnails');
+    const offers = __requests.filter(path => path === 'offer').length;
+    toggle.click();
+    await until(() => card(1)?.querySelector('img').getAttribute('src') && card(2)?.querySelector('img').getAttribute('src'),
+      'both displays receive previews in the overview');
+    assert(fixture.previews.every(request => request.displayID === 2 && request.mediaID === 'fixture-media'),
+      'only the other display requests an authenticated preview');
+    assert(card(1).getAttribute('aria-pressed') === 'true' && !canInput(), 'active display is marked and remote input pauses');
+    for (const language of ['zh-Hans','en']) {
+      await VelaI18n.setLanguage(language);
+      assert(card(2).textContent.includes(VelaI18n.t('Physical display · {0}','1920 × 1080')) &&
+        $('display-panel').scrollWidth <= $('display-panel').clientWidth + 1, `${language}: the populated grid fits and localizes`);
+    }
+    card(2).click();
+    await until(() => $('display-panel').hidden && $('display').value === '2' && canInput(), 'selecting a card switches and returns to remote control');
+    toggle.click();
+    $('virtual-options-toggle').click();
+    assert(!$('virtual-controls').hidden, 'add action opens the resolution editor');
+    $('create-virtual').click();
+    await until(() => card(3)?.getAttribute('aria-pressed') === 'true' && !$('remove-virtual').disabled, 'new virtual display is added and selected');
+    $('remove-virtual').click();
+    await until(() => !card(3) && $('display').value === '1', 'remove closes the virtual display and returns to a physical display');
+    await until(() => card(2)?.querySelector('img').getAttribute('src'), 'preview resumes after topology changes');
+    __sessionFixture = {...savedSession,state:'locked',lockScreenControl:true,canManageVirtualDisplay:false};
+    await until(() => [...$('display-grid').querySelectorAll('img')].every(image => !image.hasAttribute('src')),
+      'locking clears thumbnails from the overview');
+    const lockedCount = fixture.previews.length;
+    await wait(1100);
+    assert(fixture.previews.length === lockedCount && $('virtual-options-toggle').disabled, 'locked overview neither captures nor mutates displays');
+    __sessionFixture = savedSession;
+    await until(() => fixture.previews.length > lockedCount, 'unlock resumes thumbnails while the overview is open');
+    toggle.click();
+    const closedCount = fixture.previews.length;
+    await wait(1100);
+    assert(fixture.previews.length === closedCount && !$('display-grid').querySelector('img[src]'),
+      'closing stops requests and discards thumbnail images');
+    fixture.deferNextPreview = true;
+    toggle.click();
+    await until(() => fixture.finishPreview, 'test holds an in-flight thumbnail request');
+    toggle.click();
+    fixture.finishPreview();
+    await wait(100);
+    assert(!$('display-grid').querySelector('img[src]'), 'a late thumbnail cannot reappear after closing');
+    assert(__requests.filter(path => path === 'offer').length === offers, 'overview and virtual display operations preserve the media peer');
+  } finally {
+    fixture.finishPreview?.();
+    __sessionFixture = savedSession;
+    __displayOverviewFixture = null;
+    if (!$('display-panel').hidden) toggle.click();
+  }
+  return {passed:results.length,results};
+};

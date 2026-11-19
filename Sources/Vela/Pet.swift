@@ -698,6 +698,7 @@ final class PetController {
     private var modeOutsideClickMonitor: Any?
     private var modeAppActivationObserver: NSObjectProtocol?
     let agentButton = DelayedHelpButton()
+    let blackoutButton = DelayedHelpButton()
     let settingsButton = DelayedHelpButton()
     let container = HoverPetContainer()
     let materialSurface = LiveMaterialSurface()
@@ -705,6 +706,9 @@ final class PetController {
     var onToggle: (() -> Void)?
     var onModeSelect: ((KeepAwakeMode) -> Void)?
     var onAgentToggle: (() -> Void)?
+    var onBlackout: (() -> Void)? {
+        didSet { refreshBlackoutButton() }
+    }
     var onSettings: (() -> Void)?
     var onPaletteChange: (() -> Void)?
     var onShapeChange: (() -> Void)?
@@ -716,9 +720,11 @@ final class PetController {
     private var sleeping = false
     private var dutyAnimationPaused = false
     private var thermalLevel = DutyHeat.nominal
+    private var blackoutActive = false
+    private var blackoutStarting = false
     private(set) var automaticShape: Bool
     private static let controlIconSize = NSSize(width: 24, height: 24)
-    private static let controlsWidth: CGFloat = 146
+    private static let controlsWidth: CGFloat = 182
     private static func approvedIcon(_ name: String, template: Bool = false) -> NSImage {
         guard let url = Bundle.module.url(forResource: name, withExtension: "png",
                                           subdirectory: "Assets/ControlIcons"),
@@ -885,7 +891,18 @@ final class PetController {
         let agentDivider = NSBox(frame: NSRect(x: 109, y: 7, width: 1, height: 16))
         agentDivider.boxType = .separator
         bar.addSubview(agentDivider)
-        settingsButton.frame = NSRect(x: 114, y: 3, width: 28, height: 24)
+        blackoutButton.frame = NSRect(x: 114, y: 3, width: 28, height: 24)
+        blackoutButton.image = NSImage(systemSymbolName: "rectangle.on.rectangle.slash", accessibilityDescription: nil)
+        blackoutButton.imagePosition = .imageOnly
+        blackoutButton.imageScaling = .scaleProportionallyDown
+        blackoutButton.isBordered = false
+        blackoutButton.target = self
+        blackoutButton.action = #selector(beginBlackout)
+        bar.addSubview(blackoutButton)
+        let blackoutDivider = NSBox(frame: NSRect(x: 145, y: 7, width: 1, height: 16))
+        blackoutDivider.boxType = .separator
+        bar.addSubview(blackoutDivider)
+        settingsButton.frame = NSRect(x: 150, y: 3, width: 28, height: 24)
         settingsButton.image = Self.settingsIcon
         settingsButton.imagePosition = .imageOnly
         settingsButton.isBordered = false
@@ -898,11 +915,13 @@ final class PetController {
         settingsButton.action = #selector(openSettings)
         bar.addSubview(settingsButton)
         controls.contentView = bar
+        refreshBlackoutButton()
         container.addSubview(controls)
         container.onControlsHidden = { [weak self] in
             self?.powerButton.dismissHelp()
             self?.modeButton.dismissHelp()
             self?.agentButton.dismissHelp()
+            self?.blackoutButton.dismissHelp()
             self?.settingsButton.dismissHelp()
         }
         container.setControlsVisible(false)
@@ -969,6 +988,10 @@ final class PetController {
         onModeSelect?(mode)
     }
     @objc private func toggleAgentWatch() { onAgentToggle?() }
+    @objc private func beginBlackout() {
+        container.setControlsVisible(false)
+        onBlackout?()
+    }
     @objc private func openSettings() { onSettings?() }
     func setColorStyle(_ style: ColorTransitionStyle) {
         view.colorStyle = style
@@ -1130,6 +1153,7 @@ final class PetController {
     func refreshLocalization() {
         guard modeLanguage != Localization.language else { return }
         modeLanguage = Localization.language
+        refreshBlackoutButton()
         LocalizationUI.refresh(modeMenu)
         guard let surface = modePopover.contentViewController?.view as? NSGlassEffectView,
               let content = surface.contentView else { return }
@@ -1156,6 +1180,23 @@ final class PetController {
             ? NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor : NSColor.clear.cgColor
         agentButton.helpText = enabled ? L("Turn off Agent watch") : L("Turn on Agent watch")
         agentButton.setAccessibilityLabel(agentButton.helpText)
+    }
+
+    func setBlackout(active: Bool, starting: Bool = false) {
+        blackoutActive = active
+        blackoutStarting = starting
+        refreshBlackoutButton()
+    }
+
+    private func refreshBlackoutButton() {
+        let label = if blackoutActive { L("Physical displays disconnected") }
+                    else if blackoutStarting { L("Preparing virtual displays…") }
+                    else { L("Disconnect physical displays") }
+        blackoutButton.helpText = blackoutActive ? L("Use the host Mac’s keyboard, mouse, or trackpad to restore physical displays.") :
+            blackoutStarting ? label : L("Disconnect physical displays · Local input restores them")
+        blackoutButton.setAccessibilityLabel(label)
+        blackoutButton.isEnabled = onBlackout != nil && !blackoutActive && !blackoutStarting
+        blackoutButton.contentTintColor = blackoutActive ? .controlAccentColor : .labelColor
     }
 
     func setDutyPhase(_ phase: DutyPhase) {

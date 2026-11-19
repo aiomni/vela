@@ -13,5 +13,6 @@ uint32_t APVirtualDisplayGetID(APVirtualDisplayRef display);
 void APVirtualDisplayDestroy(APVirtualDisplayRef display);
 
 bool APDisplayPowerIsAvailable(void);
+bool APDisplayIsPhysical(CGDirectDisplayID display, bool *physical);
 CGError APConfigureDisplayEnabled(CGDisplayConfigRef configuration, CGDirectDisplayID display, bool enabled);
 CGError APGetAllDisplayList(uint32_t capacity, CGDirectDisplayID *displays, uint32_t *count);

@@ -11,6 +11,8 @@ final class RemoteSettingsController: NSObject {
     private let applyPortButton = NSButton(title: L("Apply port"), target: nil, action: nil)
     private let listenModeButton = NSPopUpButton()
     private let authenticationButton = NSPopUpButton()
+    private let privacyButton = NSPopUpButton()
+    private let privacyLabel = SettingsStyle.note("")
     private let accountLabel = NSTextField(wrappingLabelWithString: "")
     private let authenticator = RemoteAuthenticator()
     private let passwordButton = NSButton(title: L("Set access password…"), target: nil, action: nil)
@@ -49,7 +51,13 @@ final class RemoteSettingsController: NSObject {
         listenModeButton.setAccessibilityLabel(L("Remote listening scope"))
         listenModeButton.widthAnchor.constraint(equalToConstant: 240).isActive = true
         listenModeButton.target = self; listenModeButton.action = #selector(changeListenMode)
-        for popup in [authenticationButton, listenModeButton] {
+        for (mode, title) in [(RemotePrivacyMode.off, L("Off")), (.lockedOrAsleep, L("When locked or displays are asleep")), (.always, L("Always"))] {
+            privacyButton.addItem(withTitle: title)
+            privacyButton.lastItem?.representedObject = mode.rawValue
+        }
+        privacyButton.target = self; privacyButton.action = #selector(changePrivacyMode)
+        privacyButton.setAccessibilityLabel(L("Automatic private connection"))
+        for popup in [authenticationButton, listenModeButton, privacyButton] {
             popup.isBordered = false; popup.alignment = .right; popup.cell?.alignment = .right
         }
         for label in [statusLabel, addressLabel, permissionLabel, certificateLabel, errorLabel, accountLabel] {
@@ -80,6 +88,8 @@ final class RemoteSettingsController: NSObject {
             SettingsStyle.group([SettingsStyle.row(L("Port"), portControls),
                                  SettingsStyle.row(L("Listen on"), listenModeButton)]),
             SettingsStyle.note(L("All interfaces allows LAN and VPN connections. Use this Mac's actual connection address.")),
+            SettingsStyle.group([SettingsStyle.row(L("Automatic private connection"), privacyButton),
+                                 SettingsStyle.block([privacyLabel])]),
             SettingsStyle.heading(L("Permissions")),
             SettingsStyle.group([SettingsStyle.row(SettingsPrivacy.controlTitle, permissionButton,
                                     detail: permissionLabel),
@@ -116,6 +126,23 @@ final class RemoteSettingsController: NSObject {
                 : L("Use a separate Vela password. Changing authentication disconnects and revokes sessions; it does not automatically enable remote control.")
             passwordButton.title = config.password == nil ? L("Set access password…") : L("Change access password…")
             let status = service?.status ?? files.status()
+            privacyButton.selectItem(at: RemotePrivacyMode.allCases.firstIndex(of: config.privacyMode) ?? 0)
+            switch (config.enabled, config.privacyMode, status?.privacyReadiness) {
+            case (_, .off, _):
+                privacyLabel.stringValue = L("Use a virtual display and turn off physical displays before starting remote video.")
+            case (false, _, _):
+                privacyLabel.stringValue = L("Enable remote control and leave the host awake and unlocked so Vela can prepare a virtual display.")
+            case (_, _, "prepared"):
+                privacyLabel.stringValue = L("Virtual display prepared · Preview. Verify lock-screen video and physical displays on this Mac before relying on it remotely.")
+            case (_, _, "permissions"):
+                privacyLabel.stringValue = L("Grant Screen Recording, remote input access, and Input Monitoring on the host Mac.")
+            case (_, _, "unsupported"):
+                privacyLabel.stringValue = L("Automatic private connection is unavailable on this Mac.")
+            case (_, _, "failed"):
+                privacyLabel.stringValue = L("Vela could not prepare the private display. Check the host Mac's display configuration.")
+            default:
+                privacyLabel.stringValue = L("Unlock the host Mac and keep its physical display awake until the private display is prepared.")
+            }
             if config.enabled {
                 statusLabel.stringValue = status.map { L($0.message) } ?? L("Waiting for the Vela remote service…")
                 addressLabel.stringValue = status?.addresses.joined(separator: "\n") ?? L("Addresses appear after the service starts")
@@ -168,6 +195,17 @@ final class RemoteSettingsController: NSObject {
             errorLabel.stringValue = L("Listening scope saved. Use an actual connection address shown below.")
             refresh()
         } catch { errorLabel.stringValue = L(error.localizedDescription); refresh() }
+    }
+    @objc private func changePrivacyMode() {
+        guard let value = privacyButton.selectedItem?.representedObject as? String,
+              let mode = RemotePrivacyMode(rawValue: value) else { return }
+        do {
+            var config = try files.load()
+            config.privacyMode = mode
+            try files.save(config)
+            errorLabel.stringValue = ""
+        } catch { errorLabel.stringValue = L(error.localizedDescription) }
+        refresh()
     }
     @objc private func changeAuthentication() {
         let mode: RemoteAuthenticationMode = authenticationButton.indexOfSelectedItem == 1 ? .macOSAccount : .customPassword

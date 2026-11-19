@@ -1,0 +1,41 @@
+{
+  "backingScaleFactor" : 2,
+  "creationResult" : "HIDVirtualDevice.init returned nil; API exposes no underlying IOReturn.",
+  "descriptorBytes" : 149,
+  "deviceActivated" : false,
+  "deviceCreated" : false,
+  "deviceReferenceReleased" : true,
+  "directTouchBegan" : 0,
+  "directTouchCallbacks" : 0,
+  "directTouchCancelled" : 0,
+  "directTouchEnded" : 0,
+  "directTouchMoved" : 0,
+  "displayBindingStatus" : "Experimental properties; not proof of WindowServer association.",
+  "exitCode" : 2,
+  "inputReportBytes" : 14,
+  "magnificationActions" : 0,
+  "mode" : "--probe",
+  "nativeTouchAndGesturesVerified" : false,
+  "nextStep" : "The executing process lacks com.apple.developer.hid.virtual.device=true. Obtain valid authorization\/signing; TCC consent is not this entitlement.",
+  "osVersion" : "Version 27.0.1 (Build 26A434)",
+  "reportsSubmitted" : 0,
+  "requestedDisplayProperties" : {
+    "CGDirectDisplayID" : 4,
+    "DisplayIdentifier" : "8C0E0605-C4C7-4089-A903-4CF1672B9812",
+    "DisplayIntegrated" : true
+  },
+  "samples" : [
+
+  ],
+  "schemaVersion" : 1,
+  "scope" : "Isolated CoreHID\/AppKit prototype. No remote host, TCC requests, private APIs, signing, driver installation or display\/power changes.",
+  "scrollOriginChanged" : false,
+  "selectedDisplayFramePoints" : {
+    "height" : 1440,
+    "width" : 2560,
+    "x" : -2560,
+    "y" : -111
+  },
+  "selectedDisplayID" : 4,
+  "virtualDeviceEntitlementPresent" : false
+}

@@ -6,6 +6,7 @@ window.runLocalizationChecks=async()=>{
  const translatedContent=()=>{const content=document.body.cloneNode(true);content.querySelectorAll('.language-switch,script,style').forEach(element=>element.remove());return content.textContent;};
  await VelaI18n.ready;
  assert(document.documentElement.lang==='en','fresh browser defaults to English');
+ assert($('stream-preference').value==='automatic'&&$('lossless-text').checked,'fresh browser defaults to automatic quality with lossless enhancement on');
  assert($('login-button').getAttribute('aria-label')==='Connect','English login');
  assert(!/\p{Script=Han}/u.test(translatedContent()),'English UI has no untranslated Chinese');
  $('password').value='Connect';

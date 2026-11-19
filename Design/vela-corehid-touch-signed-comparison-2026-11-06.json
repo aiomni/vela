@@ -1,0 +1,133 @@
+{
+  "scope": "Matched no-input signed comparison; no raw diagnostics, identities or signing configuration.",
+  "sameBuildExecutableVerified": true,
+  "controlSigning": {
+    "appPath": ".build/touch-lab/1accce95-dfdb-48ac-ad92-5eef447c7952/VelaTouchLab.app",
+    "buildExecutableSHA256": "3de577390d48d023cb1ae1654b707eb2d4da9c17e0c5649d38c69dd65b3fc03e",
+    "executableSHA256": "26e3da236217a0c3c29ab50011a93594cd5cbecbba6a321555b6bba86fa356ce",
+    "fixedCertificateSignatureVerified": true,
+    "certificateBoundDesignatedRequirement": true,
+    "hardenedRuntimeEnabled": true,
+    "signatureHasTeamIdentifier": false,
+    "appleSigningAnchorVerified": false,
+    "signedVirtualDeviceEntitlement": false,
+    "controlWithoutHIDEntitlement": true,
+    "provisioningProfileEmbedded": false,
+    "runtimeAuthorizationVerified": false,
+    "scope": "Isolated lab only. No certificate, keychain trust, production app or permission changes. Signing claims do not establish runtime HID authorization."
+  },
+  "entitledSigning": {
+    "appPath": ".build/touch-lab/5b17c004-381b-40e6-ba10-0b023758408e/VelaTouchLab.app",
+    "buildExecutableSHA256": "3de577390d48d023cb1ae1654b707eb2d4da9c17e0c5649d38c69dd65b3fc03e",
+    "executableSHA256": "cf980022863bdce629395c4e4926c57fafe9ceb2bcaa544dd933ce57b8f421a5",
+    "fixedCertificateSignatureVerified": true,
+    "certificateBoundDesignatedRequirement": true,
+    "hardenedRuntimeEnabled": true,
+    "signatureHasTeamIdentifier": false,
+    "appleSigningAnchorVerified": false,
+    "signedVirtualDeviceEntitlement": true,
+    "controlWithoutHIDEntitlement": false,
+    "provisioningProfileEmbedded": false,
+    "runtimeAuthorizationVerified": false,
+    "scope": "Isolated lab only. No certificate, keychain trust, production app or permission changes. Signing claims do not establish runtime HID authorization."
+  },
+  "controlRuntime": {
+    "appPath": ".build/touch-lab/1accce95-dfdb-48ac-ad92-5eef447c7952/VelaTouchLab.app",
+    "executableSHA256": "26e3da236217a0c3c29ab50011a93594cd5cbecbba6a321555b6bba86fa356ce",
+    "signatureVerified": true,
+    "mode": "probe",
+    "processID": 58291,
+    "processReturnCode": 2,
+    "terminationSignal": null,
+    "runnerForcedTimeout": false,
+    "stderrBytes": 0,
+    "probeOutputReceived": true,
+    "scope": "No-input probe modes only. Capturing a result is not successful HID authorization. Raw stderr/command lines/signing configuration are not saved.",
+    "probe": {
+      "backingScaleFactor": 2,
+      "creationResult": "HIDVirtualDevice.init returned nil; API exposes no underlying IOReturn.",
+      "descriptorBytes": 149,
+      "deviceActivated": false,
+      "deviceCreated": false,
+      "deviceReferenceReleased": true,
+      "directTouchBegan": 0,
+      "directTouchCallbacks": 0,
+      "directTouchCancelled": 0,
+      "directTouchEnded": 0,
+      "directTouchMoved": 0,
+      "displayBindingStatus": "Experimental properties; not proof of WindowServer association.",
+      "exitCode": 2,
+      "inputReportAttempted": false,
+      "inputReportBytes": 14,
+      "magnificationActions": 0,
+      "mode": "--probe",
+      "nativeTouchAndGesturesVerified": false,
+      "nextStep": "The executing process lacks com.apple.developer.hid.virtual.device=true. Obtain valid authorization/signing; TCC consent is not this entitlement.",
+      "noInputTeardown": true,
+      "osVersion": "\u7248\u672c27.0.1\uff08\u7248\u53f726A434\uff09",
+      "reportsSubmitted": 0,
+      "requestedDisplayProperties": {
+        "CGDirectDisplayID": 1,
+        "DisplayIdentifier": "37D8832A-2D66-02CA-B9F7-8F30A301B230",
+        "DisplayIntegrated": true
+      },
+      "samples": [],
+      "schemaVersion": 1,
+      "scope": "Isolated CoreHID/AppKit prototype. No remote host, TCC requests, private APIs, signing, driver installation or display/power changes.",
+      "scrollOriginChanged": false,
+      "selectedDisplayFramePoints": {
+        "height": 1329,
+        "width": 2056,
+        "x": 0,
+        "y": 0
+      },
+      "selectedDisplayID": 1,
+      "virtualDeviceEntitlementPresent": false
+    }
+  },
+  "entitledRuntime": {
+    "appPath": ".build/touch-lab/5b17c004-381b-40e6-ba10-0b023758408e/VelaTouchLab.app",
+    "executableSHA256": "cf980022863bdce629395c4e4926c57fafe9ceb2bcaa544dd933ce57b8f421a5",
+    "signatureVerified": true,
+    "mode": "probe",
+    "processID": 58295,
+    "processReturnCode": -9,
+    "terminationSignal": "SIGKILL",
+    "runnerForcedTimeout": false,
+    "stderrBytes": 0,
+    "probeOutputReceived": false,
+    "scope": "No-input probe modes only. Capturing a result is not successful HID authorization. Raw stderr/command lines/signing configuration are not saved.",
+    "probe": null
+  },
+  "matchedSecurityDiagnostics": {
+    "scope": "Security diagnostics for the exact entitled matched-test artifact; raw messages and identities omitted.",
+    "artifactID": "5b17c004-381b-40e6-ba10-0b023758408e",
+    "logQueryExitCode": 0,
+    "entries": [
+      {
+        "timestamp": "2026-11-06 17:01:51.570539+0800",
+        "process": "amfid",
+        "noMatchingProfileFound": false,
+        "signatureNotValid": false,
+        "errorDomains": [],
+        "errorCodes": [],
+        "entitlementKeys": []
+      },
+      {
+        "timestamp": "2026-11-06 17:01:51.573382+0800",
+        "process": "amfid",
+        "noMatchingProfileFound": true,
+        "signatureNotValid": true,
+        "errorDomains": [
+          "AppleMobileFileIntegrityError"
+        ],
+        "errorCodes": [
+          "-413"
+        ],
+        "entitlementKeys": []
+      }
+    ]
+  },
+  "nativeTouchVerified": false,
+  "currentGate": "AMFI rejects entitled local-certificate app with AppleMobileFileIntegrityError -413, No matching profile found."
+}

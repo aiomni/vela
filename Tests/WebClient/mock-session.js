@@ -36,23 +36,42 @@ window.RTCPeerConnection=class{
 window.__sessionFixture={state:'local',recovering:false,requiresAccountVerification:false,canEnterPrivacy:true,canManageVirtualDisplay:true,localWakePermission:true,displaySleepRequested:false};
 window.__virtualRequests=[];
 window.__virtualFixtureConfiguration={width:3840,height:2160,hiDPI:true};
-window.__blackoutAttempts=0;window.__restoreRequests=0;
+window.__blackoutAttempts=0;window.__restoreRequests=0;window.__restorePayloads=[];
+window.__displayOverviewFixture=null;
 const baseFixtureFetch=window.fetch;
 window.fetch=async(path,options={})=>{
  const key=String(path).split('/api/')[1];
  const response=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});
  const virtualDisplay=()=>{
   const {width,height,hiDPI}=__virtualFixtureConfiguration,scale=hiDPI?2:1;
-  return {id:1,name:'Vela Virtual Display',width,height,logicalWidth:width/scale,logicalHeight:height/scale,isVirtual:true};
+  return {id:__displayOverviewFixture?3:1,name:'Vela Virtual Display',width,height,logicalWidth:width/scale,logicalHeight:height/scale,isVirtual:true};
  };
+ const overview=__displayOverviewFixture;
+ const overviewDisplays=()=>overview.virtual?[...overview.physical,virtualDisplay()]:overview.physical;
+ if(overview&&key==='display-preview'){
+  overview.previews.push(JSON.parse(options.body));
+  if(overview.deferNextPreview){
+   overview.deferNextPreview=false;
+   await new Promise(resolve=>{overview.finishPreview=resolve;});
+  }
+  return response({jpeg:overview.jpeg});
+ }
+ if(overview&&key==='display'){
+  overview.selected=JSON.parse(options.body).displayID;
+ }
  if(key==='virtual-display'){
   const {configuration}=JSON.parse(options.body);__virtualRequests.push(configuration);
-  __virtualFixtureConfiguration=configuration;return response({displays:[virtualDisplay()],displayID:1});
+  __virtualFixtureConfiguration=configuration;
+  if(overview){overview.virtual=true;overview.selected=3;return response({displays:overviewDisplays(),displayID:3});}
+  return response({displays:[virtualDisplay()],displayID:1});
+ }
+ if(overview&&key==='virtual-display/remove'){
+  overview.virtual=false;overview.selected=1;return response({displays:overviewDisplays(),displayID:1});
  }
  if(key==='display-capabilities')return response({virtualDisplay:true,privateSession:false,physicalBlackout:true});
  if(key==='poll'){
   const value=await (await baseFixtureFetch(path,options)).json();value.session=window.__sessionFixture;value.videoCodec=/H265\/90000/.test(window.__peer?.localDescription?.sdp||'')?'H265':'H264';
-  value.displays=[virtualDisplay()];value.displayID=1;
+  value.displays=overview?overviewDisplays():[virtualDisplay()];value.displayID=overview?.selected??1;
   value.inputPermission=!__sessionFixture.requiresAccountVerification&&!__sessionFixture.recovering;
   return response(value);
  }
@@ -60,7 +79,9 @@ window.fetch=async(path,options={})=>{
   __blackoutAttempts++;__sessionFixture={state:'blackout',recovering:false,requiresAccountVerification:false,canEnterPrivacy:false,canManageVirtualDisplay:false,localWakePermission:true,displaySleepRequested:true};return response({ok:true});
  }
  if(key==='session/restore-displays'){
-  __restoreRequests++;__sessionFixture={state:'local',recovering:false,requiresAccountVerification:false,canEnterPrivacy:true,canManageVirtualDisplay:true,localWakePermission:true,displaySleepRequested:false};return response({ok:true});
+  const payload=JSON.parse(options.body);__restorePayloads.push(payload);__restoreRequests++;
+  const locked=__sessionFixture.automaticPrivacy&&!payload.showDesktop;
+  __sessionFixture={state:locked?'locked':'local',recovering:false,requiresAccountVerification:false,lockScreenControl:locked,canEnterPrivacy:!locked,canManageVirtualDisplay:!locked,localWakePermission:true,displaySleepRequested:false};return response({ok:true});
  }
  return baseFixtureFetch(path,options);
 };

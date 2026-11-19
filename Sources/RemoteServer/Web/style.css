@@ -304,3 +304,30 @@ body:not(.session) main { position: relative; z-index: 1; min-height: 100svh; di
 .login-entry.remembered { height: 44px; }
 .login-entry.remembered #login-button { right: calc(50% - 20px); }
 #forget-device { margin-top: 10px; padding: 6px 0; border: 0; background: transparent; color: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+
+#display-panel { inset: 8px; width: auto; max-height: none; background: var(--panel); }
+#display-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 188px), 1fr));
+  gap: 12px;
+}
+.display-card { display: grid; gap: 6px; min-width: 0; text-align: left; padding: 8px; }
+.display-card[aria-pressed=true]:disabled { opacity: 1; }
+.display-thumbnail {
+  position: relative; display: grid; place-items: center; overflow: hidden;
+  aspect-ratio: 16 / 10; border-radius: 5px; background: #0d131b;
+  color: var(--muted); text-align: center; font-size: 11px;
+}
+.display-thumbnail img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.display-card-name { overflow-wrap: anywhere; }
+.display-card-detail { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.display-overview-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 14px; }
+.display-scaling { border-top: 1px solid var(--line); padding-top: 12px; }
+.display-scaling summary { cursor: pointer; font-size: 13px; }
+@media (max-width: 520px) {
+  #display-panel { padding: 12px; }
+  #display-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 126px), 1fr)); gap: 8px; }
+}
+@media (forced-colors: active) {
+  .display-card[aria-pressed=true] { outline: 2px solid Highlight; outline-offset: -2px; }
+}

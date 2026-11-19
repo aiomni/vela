@@ -1,0 +1,15 @@
+{
+  "scope": "Allowlisted security diagnostics for VelaTouchLab only; raw messages, identities and unrelated events are not saved.",
+  "logQueryExitCode": 0,
+  "entries": [
+    {
+      "timestamp": "2026-11-06 16:56:17.308862+0800",
+      "process": "amfid",
+      "reasonMarkers": [
+        "not valid"
+      ],
+      "entitlementKeys": [],
+      "errorCodes": []
+    }
+  ]
+}

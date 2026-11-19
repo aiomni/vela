@@ -179,6 +179,40 @@ public final class DesktopCapture {
             return RemoteDisplay(id: id, name: id == CGMainDisplayID() ? "Main Display" : "Display \(id)", width: size.width, height: size.height)
         }
     }
+
+    public struct PreparedDisplay {
+        public let id: UInt32
+        fileprivate let filter: SCContentFilter
+    }
+
+    public static func prepareDisplay(_ id: UInt32) async throws -> PreparedDisplay {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        guard let display = content.displays.first(where: { $0.displayID == id }) else {
+            throw RemoteError.message("The display disconnected or no display is available for capture.")
+        }
+        return PreparedDisplay(id: id, filter: SCContentFilter(display: display, excludingWindows: []))
+    }
+
+    public static func displayPreview(_ id: UInt32, mayCapture: () -> Bool) async throws -> Data? {
+        let target = try await prepareDisplay(id)
+        guard mayCapture() else { return nil }
+        let dimensions = pixelDimensions(displayID: id)
+        let longestEdge = max(dimensions.width, dimensions.height)
+        guard longestEdge > 0 else { return nil }
+        let scale = min(1, 320.0 / Double(longestEdge))
+        let configuration = SCStreamConfiguration()
+        configuration.width = max(1, Int(Double(dimensions.width) * scale))
+        configuration.height = max(1, Int(Double(dimensions.height) * scale))
+        configuration.showsCursor = false
+        let image = try await SCScreenshotManager.captureImage(contentFilter: target.filter, configuration: configuration)
+        guard mayCapture() else { return nil }
+        let data = NSMutableData()
+        guard let jpeg = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(jpeg, image, [kCGImageDestinationLossyCompressionQuality: 0.45] as CFDictionary)
+        guard CGImageDestinationFinalize(jpeg), data.length <= 24 * 1024 else { return nil }
+        return data as Data
+    }
+
     public func waitForFirstFrame() async throws {
         let generation = self.generation
         for _ in 0..<60 {
@@ -188,14 +222,14 @@ public final class DesktopCapture {
         }
         throw RemoteError.message("The display has not provided a new frame yet.")
     }
-    public func start(source: RTCVideoSource, displayID: UInt32, quality: DesktopQuality, limit: H264CaptureLimit = .init(level: 31)) async throws {
+    public func start(source: RTCVideoSource, displayID: UInt32, quality: DesktopQuality, limit: H264CaptureLimit = .init(level: 31),
+                      prepared: PreparedDisplay? = nil) async throws {
         await stop()
         let generation = self.generation
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let target: PreparedDisplay
+        if let prepared, prepared.id == displayID { target = prepared }
+        else { target = try await Self.prepareDisplay(displayID) }
         guard self.generation == generation else { throw RemoteError.message("Capture canceled.") }
-        guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
-            throw RemoteError.message("The display disconnected or no display is available for capture.")
-        }
         let pixels = Self.pixelDimensions(displayID: displayID)
         let nativeWidth = pixels.width
         let nativeHeight = pixels.height
@@ -220,7 +254,7 @@ public final class DesktopCapture {
             }
         }
         output.frameIdentity = frameIdentity
-        let stream = SCStream(filter: SCContentFilter(display: display, excludingWindows: []), configuration: config, delegate: output)
+        let stream = SCStream(filter: target.filter, configuration: config, delegate: output)
         try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: output.sampleQueue)
         output.startHeartbeat()
         self.output = output; self.stream = stream; self.streamConfiguration = config; self.displayID = displayID

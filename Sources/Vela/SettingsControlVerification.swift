@@ -77,4 +77,26 @@ func verifySettingsControls() {
         precondition(scrollReview.contentView.bounds.size == viewport && scroller.doubleValue == 0.4)
     }
     print("PASS: thin translucent overlay thumbs expand and strengthen on hover without changing scroll values or viewport")
+
+    let suite = "Vela.controls.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    let pet = try! PetController(defaults: defaults)
+    defer { pet.hide(); defaults.removePersistentDomain(forName: suite) }
+    pet.resize(to: 24)
+    pet.container.setControlsVisible(true)
+    precondition(pet.blackoutButton.image != nil && !pet.blackoutButton.helpText.isEmpty)
+    precondition(pet.modeButton.frame.maxX < pet.blackoutButton.frame.minX &&
+                 pet.blackoutButton.frame.maxX < pet.settingsButton.frame.minX &&
+                 pet.controls.frame.maxX <= pet.container.bounds.maxX)
+    var requested = false
+    pet.onBlackout = { requested = true }
+    pet.blackoutButton.performClick(nil)
+    precondition(requested && !pet.container.controlsVisible)
+    pet.setBlackout(active: false, starting: true)
+    precondition(!pet.blackoutButton.isEnabled)
+    pet.setBlackout(active: true)
+    precondition(!pet.blackoutButton.isEnabled)
+    pet.setBlackout(active: false)
+    precondition(pet.blackoutButton.isEnabled)
+    print("PASS: companion blackout action, help, layout, and busy/active states")
 }

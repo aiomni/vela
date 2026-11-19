@@ -284,13 +284,15 @@ func verifyVela() throws {
     defer { pet.hide() }
     pet.setEnabled(true)
     pet.resize(to: 24)
-    precondition(pet.view.frame.width == 64 && pet.panel.frame.width == 150)
+    precondition(pet.view.frame.width == 64 && pet.panel.frame.width == 186)
     precondition(pet.controls.frame.minX >= 0 && pet.controls.frame.maxX <= pet.panel.contentView!.bounds.maxX)
     precondition(pet.powerButton.frame.maxX < pet.agentButton.frame.minX &&
                  pet.agentButton.frame.maxX < pet.modeButton.frame.minX)
     precondition(pet.agentButton.image != nil && pet.modeButton.frame.maxX < pet.settingsButton.frame.minX)
+    precondition(pet.modeButton.frame.maxX < pet.blackoutButton.frame.minX &&
+                 pet.blackoutButton.frame.maxX < pet.settingsButton.frame.minX && pet.blackoutButton.image != nil)
     pet.resize(to: 96)
-    precondition(pet.view.frame.width == 136 && pet.panel.frame.width == 150)
+    precondition(pet.view.frame.width == 136 && pet.panel.frame.width == 186)
     pet.resize(to: 256)
     precondition(pet.petSize == 256 && pet.view.frame.width == 296 && pet.panel.frame.width == 296)
     pet.resize(to: 512)
@@ -924,7 +926,8 @@ func verifyVela() throws {
     let helpEvent = NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [],
         timestamp: 0, windowNumber: delegate.pet.panel.windowNumber, context: nil,
         eventNumber: 0, clickCount: 0, pressure: 0)!
-    for button in [delegate.pet.powerButton, delegate.pet.modeButton, delegate.pet.agentButton, delegate.pet.settingsButton] {
+    for button in [delegate.pet.powerButton, delegate.pet.modeButton, delegate.pet.agentButton,
+                   delegate.pet.blackoutButton, delegate.pet.settingsButton] {
         precondition(!button.helpText.isEmpty && button.toolTip == nil)
     }
     let displayIcon = delegate.pet.modeButton.image!

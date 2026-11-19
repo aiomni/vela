@@ -48,6 +48,9 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
     private let passwordField = NSSecureTextField(string: "")
     private let connectButton = NSButton(title: L("Connect"), target: nil, action: nil)
     private let disconnectButton = NSButton(title: L("Disconnect"), target: nil, action: nil)
+    private let restoreDisplaysButton = NSButton(title: L("Restore all physical displays"), target: nil, action: nil)
+    private var privateDesktopVisible = false
+    private var restoringDisplays = false
     private let displayButton = NSPopUpButton()
     private let qualityButton = NSPopUpButton()
     private let streamPreference = NSPopUpButton()
@@ -55,6 +58,7 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
     private let streamStatus = NSTextField(labelWithString: "")
     private var streamPresentation: (codec: String, reason: String?, state: String?)?
     private let losslessButton = NSButton(checkboxWithTitle: L("Lossless text enhancement"), target: nil, action: nil)
+    private let losslessPreferenceKey = "velaLosslessTextEnhancement"
     private var receiverMetrics = DesktopStreamMetrics()
     private var forceH264 = false
     private var attemptedHEVC = false
@@ -62,6 +66,7 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
     private var lastDecodedFrames = 0.0
     private let message = NSTextField(wrappingLabelWithString: L("Enter the host Mac's IP:port and the password for its selected authentication method. Mac account authentication accepts only the account running Vela. Touch ID is not supported. An existing connection can show the system lock screen for password entry."))
     private let textField = NSTextField(string: "")
+    private let lockTextField = NSSecureTextField(string: "")
     private let surface = RemoteDesktopSurface()
     private lazy var viewport = RemoteDesktopViewport(surface: surface)
     private let trustDelegate = CertificateTrust()
@@ -131,6 +136,8 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
         streamPreference.target = self; streamPreference.action = #selector(changeStreamPreference)
         streamPreference.setAccessibilityLabel(L("Streaming preference"))
         streamStatus.font = .systemFont(ofSize: 11); streamStatus.textColor = .secondaryLabelColor
+        let losslessEnabled = UserDefaults.standard.object(forKey: losslessPreferenceKey) as? Bool ?? true
+        losslessButton.state = losslessEnabled ? .on : .off
         losslessButton.target = self; losslessButton.action = #selector(changeLosslessPreference)
         let streamRow = NSStackView(views: [streamPreference, losslessButton, streamStatus, NSView()])
         streamRow.spacing = 8; stack.addArrangedSubview(streamRow)
@@ -154,12 +161,20 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
         surface.onInput = { [weak self] input in self?.peer?.sendInput(input) }
         surface.onRelease = { [weak self] in self?.peer?.sendInput(RemoteInput(type: "release")) }
         textField.placeholderString = L("Enter text to send to the remote computer")
+        lockTextField.placeholderString = L("Click the system password field first, then enter text here to send")
+        lockTextField.setAccessibilityLabel(L("Text for the system password field"))
+        lockTextField.target = self; lockTextField.action = #selector(sendText)
+        lockTextField.isHidden = true
         let send = NSButton(title: L("Send text"), target: self, action: #selector(sendText))
         textField.target = self; textField.action = #selector(sendText)
-        let textRow = NSStackView(views: [textField, send]); textRow.spacing = 8
+        let textRow = NSStackView(views: [textField, lockTextField, send]); textRow.spacing = 8
         stack.addArrangedSubview(textRow); textRow.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         message.font = .systemFont(ofSize: 12); message.textColor = .secondaryLabelColor
-        stack.addArrangedSubview(message); message.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        message.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        restoreDisplaysButton.target = self; restoreDisplaysButton.action = #selector(restorePhysicalDisplays)
+        restoreDisplaysButton.isHidden = true
+        let statusRow = NSStackView(views: [message, restoreDisplaysButton]); statusRow.spacing = 8
+        stack.addArrangedSubview(statusRow); statusRow.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         let menu = NSMenu()
         let appItem = NSMenuItem(); let appMenu = NSMenu()
         appMenu.addItem(withTitle: L("Quit Vela Connect"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -202,13 +217,6 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
                 let login = try await object("login", body: ["password": password, "mode": mode, "generation": generation])
                 guard let token = login["token"] as? String else { throw RemoteError.message(L("Invalid login response.")) }
                 self.token = token; passwordField.stringValue = ""
-                let displays = try JSONDecoder().decode([RemoteDisplay].self, from: await request("displays"))
-                guard !displays.isEmpty else { throw RemoteError.message(L("The remote computer has no display available for capture.")) }
-                displayButton.removeAllItems()
-                for display in displays {
-                    displayButton.addItem(withTitle: "\(display.name) · \(display.width)×\(display.height)")
-                    displayButton.lastItem?.representedObject = display
-                }
                 UserDefaults.standard.set(raw, forKey: "lastRemoteAddress")
                 retries = 0; forceH264 = false
                 try await startPeer()
@@ -224,10 +232,20 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
         }
     }
     private func startPeerAttempt() async throws {
+        let previous = selectedDisplay
         closePeer()
+        attemptedHEVC = false
         let generation = UUID(); connectionGeneration = generation
+        let displays = try JSONDecoder().decode([RemoteDisplay].self, from: await request("displays"))
+        guard generation == connectionGeneration else { throw RemoteError.message(L("Connection canceled or invalid response.")) }
+        guard !displays.isEmpty else { throw RemoteError.message(L("The remote computer has no display available for capture.")) }
+        showDisplays(displays, selected: previous)
+        if displays.count == 1 && displays.first?.isVirtual == true {
+            message.stringValue = L("Preparing the virtual display for remote video…")
+        }
         guard let displayID = selectedDisplay else { throw RemoteError.message(L("Select a display.")) }
         let capability = await DesktopHEVC.capability.value
+        guard generation == connectionGeneration else { throw RemoteError.message(L("Connection canceled or invalid response.")) }
         attemptedHEVC = capability.available && !forceH264 && losslessButton.state != .on
         let peer = try RemotePeer(sendingVideo: false, allowHEVC: attemptedHEVC)
         peerStartedAt = ProcessInfo.processInfo.systemUptime; lastDecodedFrames = 0
@@ -274,6 +292,21 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
             guard value["mediaID"] as? String == mediaID else { throw RemoteError.message(value["message"] as? String ?? L("The session has ended.")) }
             surface.inputAllowed = value["inputPermission"] as? Bool == true && peer.connectionState == .connected
             let session = value["session"] as? [String: Any]
+            let locked = session?["state"] as? String == "locked"
+            if textField.isHidden != locked || !surface.inputAllowed {
+                textField.stringValue = ""; lockTextField.stringValue = ""
+            }
+            textField.isHidden = locked; lockTextField.isHidden = !locked
+            let physicalDisplaysOff = session?["displaySleepRequested"] as? Bool == true || session?["state"] as? String == "blackout"
+            let automaticPrivacy = session?["automaticPrivacy"] as? Bool == true
+            let companionBlackout = session?["companionBlackout"] as? Bool == true
+            let recovering = session?["recovering"] as? Bool == true
+            privateDesktopVisible = automaticPrivacy && session?["state"] as? String == "blackout" && session?["recovering"] as? Bool != true
+            restoreDisplaysButton.title = automaticPrivacy ? L("Lock Mac and restore physical displays") : L("Restore all physical displays")
+            restoreDisplaysButton.isHidden = !physicalDisplaysOff || companionBlackout
+            restoreDisplaysButton.isEnabled = !restoringDisplays && peer.connectionState == .connected
+            displayButton.isEnabled = !physicalDisplaysOff || (companionBlackout && !recovering)
+            qualityButton.isEnabled = displayButton.isEnabled
             surface.renderer.isHidden = session?["requiresAccountVerification"] as? Bool == true || session?["recovering"] as? Bool == true
             surface.losslessAllowed = losslessButton.state == .on && ["local", "blackout"].contains(session?["state"] as? String ?? "") && !surface.renderer.isHidden
             if !surface.losslessAllowed { surface.lossless.reset() }
@@ -282,22 +315,21 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
             } else if session?["recovering"] as? Bool == true {
                 message.stringValue = L("Restoring the session video…")
             } else if session?["lockScreenControl"] as? Bool == true {
-                message.stringValue = L("Mac is locked: click the system password field, enter the password, and press Return to unlock.")
+                message.stringValue = physicalDisplaysOff
+                    ? L("Private display only · Unlock in the macOS password field")
+                    : L("Mac is locked: click the system password field, enter the password, and press Return to unlock.")
             } else if value["inputPermission"] as? Bool == false {
                 message.stringValue = L("View only: grant Accessibility access on the host Mac.")
             } else if session?["state"] as? String == "blackout" {
                 message.stringValue = L("Virtual display only: local keyboard or mouse input restores physical displays.")
+            } else if peer.connectionState == .connected {
+                message.stringValue = L("Connected · Click the screen to control · ⌃⌥Esc releases the keyboard")
             }
             if let rawDisplays = value["displays"], let selected = value["displayID"] as? UInt32 {
                 let data = try JSONSerialization.data(withJSONObject: rawDisplays)
                 let displays = try JSONDecoder().decode([RemoteDisplay].self, from: data)
                 if selectedDisplay != selected || displayButton.numberOfItems != displays.count {
-                    displayButton.removeAllItems()
-                    for display in displays {
-                        displayButton.addItem(withTitle: "\(display.name) · \(display.width)×\(display.height)")
-                        displayButton.lastItem?.representedObject = display
-                        if display.id == selected { displayButton.select(displayButton.lastItem) }
-                    }
+                    showDisplays(displays, selected: selected)
                 }
                 surface.displayID = selected
             }
@@ -324,6 +356,39 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
             let feedback = currentStreamFeedback(decode: sample.decodeMilliseconds, dropped: sample.droppedFrameRatio)
             _ = try? await object("stream-feedback", body: ["mediaID": mediaID, "feedback": try JSONSerialization.jsonObject(with: JSONEncoder().encode(feedback))])
         } catch { message.stringValue = L(error.localizedDescription); scheduleReconnect() }
+    }
+    private func showDisplays(_ displays: [RemoteDisplay], selected: UInt32?) {
+        displayButton.removeAllItems()
+        for display in displays {
+            displayButton.addItem(withTitle: "\(L(display.name)) · \(display.width)×\(display.height)")
+            displayButton.lastItem?.representedObject = display
+            if display.id == selected { displayButton.select(displayButton.lastItem) }
+        }
+    }
+
+    @objc private func restorePhysicalDisplays() {
+        guard let mediaID, !restoringDisplays else { return }
+        var showDesktop = false
+        if privateDesktopVisible {
+            let alert = NSAlert()
+            alert.messageText = L("Restore all physical displays")
+            alert.informativeText = L("Anyone near the host Mac can see the current desktop after you restore physical displays.")
+            alert.addButton(withTitle: L("Lock Mac and restore physical displays"))
+            alert.addButton(withTitle: L("Cancel"))
+            alert.addButton(withTitle: L("Show desktop on physical displays"))
+            let choice = alert.runModal()
+            guard choice == .alertFirstButtonReturn || choice == .alertThirdButtonReturn else { return }
+            showDesktop = choice == .alertThirdButtonReturn
+        }
+        guard self.mediaID == mediaID else { return }
+        surface.releaseAll()
+        restoringDisplays = true; restoreDisplaysButton.isEnabled = false
+        Task {
+            defer { restoringDisplays = false }
+            do {
+                _ = try await object("session/restore-displays", body: ["mediaID": mediaID, "showDesktop": showDesktop])
+            } catch { message.stringValue = L(error.localizedDescription) }
+        }
     }
     private func scheduleReconnect() {
         guard reconnectTask == nil, token != nil, retries < 5 else { return }
@@ -359,6 +424,10 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
         connectionGeneration = UUID()
         streamPresentation = nil; renderStreamStatus()
         surface.releaseAll(); surface.inputAllowed = false
+        textField.stringValue = ""; lockTextField.stringValue = ""
+        textField.isHidden = false; lockTextField.isHidden = true
+        restoreDisplaysButton.isHidden = true
+        displayButton.isEnabled = true; qualityButton.isEnabled = true
         timer?.invalidate(); timer = nil
         peer?.remoteVideo?.remove(surface.videoSink)
         surface.resetVideoSession(); surface.losslessAllowed = false
@@ -419,6 +488,7 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
         }
     }
     @objc private func changeLosslessPreference() {
+        UserDefaults.standard.set(losslessButton.state == .on, forKey: losslessPreferenceKey)
         surface.lossless.reset()
         if let peer { observeLossless(peer, generation: connectionGeneration) }
         if losslessButton.state == .on && attemptedHEVC { scheduleReconnect() }
@@ -434,14 +504,15 @@ final class RemoteViewerApplication: NSObject, NSApplicationDelegate, NSWindowDe
         Task { _ = try? await object("stream-feedback", body: ["mediaID": mediaID, "feedback": try JSONSerialization.jsonObject(with: JSONEncoder().encode(feedback))]) }
     }
     @objc private func sendText() {
-        guard !textField.stringValue.isEmpty, surface.inputAllowed else { return }
-        var input = RemoteInput(type: "text"); input.text = textField.stringValue
+        let field = lockTextField.isHidden ? textField : lockTextField
+        guard !field.stringValue.isEmpty, surface.inputAllowed else { return }
+        var input = RemoteInput(type: "text"); input.text = field.stringValue
         guard input.validate() else { message.stringValue = L("Send at most 8192 bytes at a time. Split longer text into smaller parts."); return }
-        peer?.sendInput(input); textField.stringValue = ""; window.makeFirstResponder(surface)
+        peer?.sendInput(input); field.stringValue = ""; window.makeFirstResponder(surface)
     }
     @objc private func fullscreen() { window.toggleFullScreen(nil) }
     @objc private func releaseKeys() { surface.releaseAll(); window.makeFirstResponder(addressField) }
-    func windowDidResignKey(_ notification: Notification) { surface.releaseAll() }
+    func windowDidResignKey(_ notification: Notification) { surface.releaseAll(); lockTextField.stringValue = "" }
     func windowWillClose(_ notification: Notification) { NSApp.terminate(nil) }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         Task { await disconnect(notify: true); sender.reply(toApplicationShouldTerminate: true) }

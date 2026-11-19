@@ -28,8 +28,9 @@ fakes. Live Metal drawable checks need a visible desktop; an obscured window mak
 those checks INCONCLUSIVE. These tests do not prove real unattended lock behavior.
 The native language switching check restores the original language selection.
 The focused --check-settings-controls command verifies native compact switches,
-hover scrollbar rendering, and stable scrolling with a hidden window. It creates
-no hotkeys, power assertions, or remote services and can run alongside Vela.
+hover scrollbar rendering, stable scrolling, and the companion blackout button
+with an inert action. It creates no hotkeys, power assertions, or remote services
+and can run alongside Vela.
 Run the full --self-test in an isolated desktop session to avoid conflicts with
 another running Vela instance's hotkeys and real pointer/focus state.
 
@@ -105,6 +106,15 @@ Intrusive live tests are not routine validation:
   approval. Preserve the initial setting and verify watchdog recovery afterward.
 - --physical-blackout-probe changes real physical/virtual displays. Its recovery
   watchdog must be ready before disabling physical displays.
+- For companion blackout acceptance, use the signed app with Input Monitoring
+  granted. Hover over the companion and choose Disconnect physical displays.
+  On a Mac with an internal and an external display, verify both go dark and a
+  temporary virtual display replaces each. With remote access enabled, verify
+  the unlocked desktop remains controllable, each virtual display is selectable,
+  and remote input does not restore physical displays. Move the host mouse, use
+  the trackpad, or press a key and verify the original primary display, modes,
+  arrangement, and mirroring return. Repeat with remote access off, and exercise
+  normal exit and recovery from app termination on a test desktop.
 - --remote-session-probe / --remote-web-probe may require real capture/input access.
   Historical detach/lock-first prototypes can switch sessions and require local login.
 - --remote-display-watchdog is an internal temporary recovery process, not a normal
@@ -184,6 +194,74 @@ two-finger local panning while zoomed, one-finger mouse clicks and dragging,
 hardware/on-screen keyboard and text input, fixed magnification when the keyboard
 opens, cancellation, view-only permission preservation, and recovery overlay bounds.
 Current acceptance is in Design/vela-remote-zoom-2026-11-04.md.
+
+CoreHID native touchscreen experiment (isolated; not normal Vela startup):
+  swift build -c debug --product VelaTouchLab
+  swift test --filter TouchLabCoreTests
+  BIN_DIR="$(swift build -c debug --show-bin-path)"
+  "${BIN_DIR:?}/VelaTouchLab" --probe
+  "${BIN_DIR:?}/VelaTouchLab" --receiver-only --duration 3
+The probe attempts real CoreHID initialization but never activates a device, sends
+reports, opens a window, or requests TCC. Expected exit 2 means initialization
+returned nil; inspect JSON virtualDeviceEntitlementPresent and creationResult,
+not a guessed IOReturn. Receiver-only opens a temporary standard scroll-view
+window with direct-touch recognizers, but creates no device and injects no input.
+Its exit 0 means window/configuration smoke completion, NOT native-touch success.
+Optional --output NEW.json saves evidence without replacing an existing file.
+The separate --activate-probe mode activates the virtual device, checks own-device
+registry/descriptor/usage/elements and performs a one-second-bounded Feature Get
+roundtrip through the public CoreHID client. It sends ZERO Input reports, including
+cleanup. This mode creates no window and never seizes or monitors physical devices.
+It cannot run successfully until device-creation/signing prerequisites pass.
+  "${BIN_DIR:?}/VelaTouchLab" --activate-probe --duration 5
+
+Isolated fixed-certificate signing validation (does not replace production apps):
+  python3 -m unittest discover -s Tests/TouchLab -p 'test_*.py'
+  python3 scripts/build-touch-lab.py --control-without-hid-entitlement
+  python3 scripts/build-touch-lab.py
+The scripts use the existing SIGNING_IDENTITY / local configuration, retain
+hardened runtime and certificate-bound designated requirements, create fresh UUID
+artifact directories under .build/touch-lab, and never fall back to ad-hoc signing.
+The explicit control is a separate no-entitlement app, not a permission workaround.
+Signing evidence contains only allowlisted fields, not identity/trust/keychain data.
+A codesign verification pass is NOT proof of AMFI/profile/HID authorization.
+  python3 scripts/probe-signed-touch-lab.py --app PATH_TO_ISOLATED_LAB.app --mode probe --output NEW.json
+The capture runner accepts only probe/activate-probe, refuses production targets,
+records launch signals or parsed JSON, never saves raw stderr or full command lines,
+and exits 0 when evidence capture completes even if the tested process was killed.
+Inspect processReturnCode, terminationSignal and probe data for the actual result.
+Current signed/runtime comparison and exact authorization gate:
+  Design/vela-corehid-touch-signed-validation-2026-11-06.md
+
+Only after obtaining legitimate virtual-HID signing authorization, --run with
+--isolated-desktop sends system-wide one-finger scroll and two-finger pinch
+contacts at intended test-window coordinates. The flag acknowledges an isolated,
+non-sensitive test desktop; this is NOT a window-only input sandbox.
+WindowServer display association is experimental and might be ignored; do not
+run over a sensitive desktop or infer binding from registry properties. Keep the
+window focused and avoid physical input. Focus/geometry/console/display changes
+abort; cleanup submits terminal lifts and an empty scan. A bounded watchdog ends
+the process if CoreHID stalls; it does not claim successful release delivery.
+No driver, privileged daemon, network host, private Sidecar API, TCC/signing change,
+physical-display change, power assertion, or CGEvent input fallback is added.
+  "${BIN_DIR:?}/VelaTouchLab" --run --isolated-desktop --duration 15 --output NEW.json
+Use --vela-virtual-display to require an existing active, unmirrored Vela display.
+Combine it with --display-id ID if several match. The receiver records its actual
+display and verifies that its window fits before sending input. The same selection
+flag works with the no-input modes. The lab uses an existing display.
+Profile-backed signing and the virtual-display run sequence are documented in
+  Design/vela-corehid-touch-virtual-display-2026-11-09.md
+Exit 3 means creation/report path ran but native acceptance
+was not met; 4 means error/cancel/safety abort, 5 evidence write failure, 6 watchdog
+process teardown. Exit 0 in --run requires all four direct NSTouch lifecycles,
+per-stage coordinate matches to generated scroll/pinch/release reports, zero
+pending native contacts, standard scroll origin change, and native magnification
+associated with a direct-touch stream. No mouse movement/click alone counts.
+AppKit does not expose authenticated report-source provenance; unrelated physical
+input can invalidate attribution even with these correspondence checks.
+This controlled experiment does not establish remote transport, mixed physical
+input behavior, all display layouts or production support. Authorization details
+and dated evidence: Design/vela-corehid-touch-prototype-2026-11-06.md.
 
 Remembered browser access:
 - swift test includes persistent hash-only credential, cookie parsing/attributes,

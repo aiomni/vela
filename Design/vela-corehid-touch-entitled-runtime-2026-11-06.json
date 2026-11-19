@@ -1,0 +1,14 @@
+{
+  "appPath": ".build/touch-lab/5b17c004-381b-40e6-ba10-0b023758408e/VelaTouchLab.app",
+  "executableSHA256": "cf980022863bdce629395c4e4926c57fafe9ceb2bcaa544dd933ce57b8f421a5",
+  "signatureVerified": true,
+  "mode": "probe",
+  "processID": 58295,
+  "processReturnCode": -9,
+  "terminationSignal": "SIGKILL",
+  "runnerForcedTimeout": false,
+  "stderrBytes": 0,
+  "probeOutputReceived": false,
+  "scope": "No-input probe modes only. Capturing a result is not successful HID authorization. Raw stderr/command lines/signing configuration are not saved.",
+  "probe": null
+}

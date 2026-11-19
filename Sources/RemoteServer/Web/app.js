@@ -13,6 +13,8 @@ try{const saved=localStorage.getItem(keyboardLayoutKey);if(['side','bottom'].inc
 let streamInfo=null,videoCodec='H264',streamDiagnostics={},feedbackBusy=false,losslessChannel=null,frameSyncSupported=false,frameCallback=null,identityWorker=null,encodedMetadataSupported=false,disableEncodedTransform=false;
 let forceH264=false,hevcAttempted=false,hevcVerifiedLocally=false,lastVideoProgress=0,lastDecodedFrames=-1;
 let gestureZoom=1,gestureWidth=0,touchFrame=null;
+const losslessPreferenceKey='vela.losslessTextEnhancement';
+try{const saved=localStorage.getItem(losslessPreferenceKey);if(saved==='on'||saved==='off')$('lossless-text').checked=saved==='on';}catch{}
 const losslessCanvas=$('lossless-canvas'),losslessContext=losslessCanvas.getContext('2d');
 const losslessReceiver=new DesktopLosslessReceiver({
   decode:png=>createImageBitmap(new Blob([png],{type:'image/png'})),
@@ -35,6 +37,7 @@ function observeVideoFrame(epoch){
   });
 }
 $('lossless-text').addEventListener('change',()=>{
+  try{localStorage.setItem(losslessPreferenceKey,$('lossless-text').checked?'on':'off');}catch{}
   losslessReceiver.reset();identityWorker?.postMessage({type:'enabled',enabled:$('lossless-text').checked});
   if(hevcAttempted||(!$('lossless-text').checked&&hevcVerifiedLocally&&!forceH264)){startPeer();return;}
   sendStreamFeedback(connectionEpoch);
@@ -52,6 +55,8 @@ async function sendStreamFeedback(epoch,extra={}){
 $('stream-preference').addEventListener('change',()=>{try{localStorage.setItem(streamPreferenceKey,$('stream-preference').value);}catch{}sendStreamFeedback(connectionEpoch);});
 let virtualSupported=false,virtualBusy=false;
 let blackoutSupported=false,privacyBusy=false,sessionInfo=null;
+let displayChanging=false,previewTimer=null,previewGeneration=0,previewInFlight=false,nextPreview=0;
+const displayCards=new Map(),previewCanvas=document.createElement('canvas');
 let lastPoint={x:.5,y:.5},touches=new Map(),touchGesture=null,longPressTimer=null;
 const heldKeys=new Set(),heldModifiers=new Set(),mouseButtons=new Set();
 const modifierName=Core.modifierName;
@@ -60,10 +65,11 @@ function message(text='',persistent=false){
   if(text&&!persistent)noticeTimer=setTimeout(()=>{$('message').hidden=true;},8000);
 }
 function state(text,live=false){$('connection').textContent=text;$('connection').classList.toggle('live',live);updateControlState();}
-function canInput(){return connected&&inputAllowed&&!viewOnly&&control?.readyState==='open';}
+function canInput(){return connected&&inputAllowed&&!viewOnly&&!displayChanging&&activePanel!=='display-panel'&&control?.readyState==='open';}
 function updateControlState(){
   const ready=canInput();
-  $('control-state').textContent=!connected?t("Connecting…"):sessionInfo?.requiresAccountVerification?t("Current user session unavailable"):sessionInfo?.recovering?t("Restoring video…"):!inputAllowed?t("View only · Access not granted"):viewOnly?t("View only"):ready?(dragging?t("Dragging · Click to release"):sessionInfo?.state==='locked'?t("System locked · Password entry available"):sessionInfo?.state==='blackout'?t("Virtual display only · Control ready"):t("Control ready · Keyboard and mouse available")):t("Connecting control channel…");
+  const lockStatus=sessionInfo?.automaticPrivacy?t("Private lock screen · Password entry available"):t("System locked · Password entry available");
+  $('control-state').textContent=!connected?t("Connecting…"):sessionInfo?.requiresAccountVerification?t("Current user session unavailable"):sessionInfo?.recovering?t("Restoring video…"):!inputAllowed?t("View only · Access not granted"):viewOnly?t("View only"):ready?(dragging?t("Dragging · Click to release"):sessionInfo?.state==='locked'?lockStatus:sessionInfo?.state==='blackout'?t("Virtual display only · Control ready"):t("Control ready · Keyboard and mouse available")):t("Connecting control channel…");
   document.querySelectorAll('[data-remote-input]').forEach(button=>button.disabled=!ready);
   $('input-hint').hidden=!ready||!!activePanel;
   const locked=sessionInfo?.state==='locked';
@@ -72,23 +78,36 @@ function updateControlState(){
   $('lock-text-note').hidden=!locked;
   updateVirtualControls();
   updatePrivacyControls();
+  syncDisplayPreviews();
 }
 function updateVirtualControls(){
   const current=displays.find(display=>display.isVirtual);
   const manageable=virtualSupported&&sessionInfo?.canManageVirtualDisplay!==false;
-  $('create-virtual').disabled=!manageable||virtualBusy||privacyBusy||!connected||!mediaID||viewOnly;
+  $('create-virtual').disabled=!manageable||virtualBusy||privacyBusy||displayChanging||!connected||!mediaID||viewOnly;
   $('create-virtual').textContent=virtualBusy?t("Updating…"):current?t("Update and switch"):t("Create and switch");
-  $('remove-virtual').hidden=!current;$('remove-virtual').disabled=!manageable||virtualBusy||privacyBusy||!connected||!mediaID||viewOnly;
+  $('virtual-options-toggle').textContent=current?t("Edit virtual display"):t("Add virtual display");
+  $('virtual-options-toggle').disabled=$('create-virtual').disabled;
+  $('remove-virtual').hidden=!current||sessionInfo?.automaticPrivacy===true;$('remove-virtual').disabled=$('create-virtual').disabled;
   for(const id of ['virtual-preset','virtual-width','virtual-height','virtual-hidpi'])$(id).disabled=virtualBusy||!virtualSupported;
 }
 function updatePrivacyControls(){
-  const isOff=sessionInfo?.state==='blackout',local=sessionInfo?.state==='local';
+  const isOff=sessionInfo?.displaySleepRequested||sessionInfo?.state==='blackout',local=sessionInfo?.state==='local';
+  const automatic=sessionInfo?.automaticPrivacy===true;
+  const companion=sessionInfo?.companionBlackout===true;
+  for(const id of ['manual-privacy-help','privacy-form','manual-privacy-recovery','manual-privacy-lock'])$(id).hidden=automatic||companion;
+  $('automatic-privacy-help').hidden=!automatic;
   $('begin-privacy').disabled=!blackoutSupported||!connected||!mediaID||privacyBusy||virtualBusy||viewOnly||!local||!sessionInfo?.canEnterPrivacy||sessionInfo?.localWakePermission===false||sessionInfo?.recovering;
   $('begin-privacy').textContent=privacyBusy?t("Turning off physical displays…"):isOff?t("Physical displays are off"):t("Turn off physical displays, keep virtual display");
-  $('restore-physical').hidden=!isOff;$('restore-physical').disabled=privacyBusy||!connected||viewOnly;
-  $('display').disabled=isOff||virtualBusy;$('quality').disabled=isOff||virtualBusy;
+  $('restore-physical').hidden=!isOff||companion;$('restore-physical').disabled=privacyBusy||!connected||viewOnly;
+  $('restore-physical').textContent=automatic?t("Lock Mac and restore physical displays"):t("Restore all physical displays");
+  $('show-physical').hidden=!automatic||!isOff||sessionInfo?.state!=='blackout';
+  $('show-physical').disabled=$('restore-physical').disabled||sessionInfo?.recovering;
+  const displayLocked=isOff&&(!companion||sessionInfo?.recovering);
+  $('display').disabled=displayLocked||virtualBusy||displayChanging;$('quality').disabled=displayLocked||virtualBusy||displayChanging;
   const labels={local:t("Local session · Physical displays can show the desktop"),locked:t("System locked · Unlock in the on-screen password field"),detached:t("Return to this user session on the host Mac"),blackout:t("Physical displays are off · Local input restores them"),unavailable:t("Current user session unavailable")};
   let hint=labels[sessionInfo?.state]||t("Reading display status…");
+  if(companion&&sessionInfo?.state==='blackout')hint=t("Use the host Mac’s keyboard, mouse, or trackpad to restore physical displays.");
+  if(automatic&&isOff&&sessionInfo?.state==='locked')hint=t("Private display only · Unlock in the macOS password field");
   if(local&&!sessionInfo?.canEnterPrivacy)hint+=t(" · Create and select a virtual display first");
   if(local&&sessionInfo?.localWakePermission===false)hint+=t(" · Grant Vela Input Monitoring access on the host Mac");
   $('privacy-status').textContent=blackoutSupported?hint:t("This system does not support disabling physical displays.");
@@ -111,7 +130,16 @@ $('privacy-form').addEventListener('submit',async event=>{
   }catch(error){if(epoch===connectionEpoch)message(error.message);}
   finally{privacyBusy=false;updateControlState();}
 });
-$('restore-physical').addEventListener('click',async()=>{release();try{await api('session/restore-displays',{mediaID});message(t("Physical displays restored. Remote control can continue."));}catch(error){message(error.message);}});
+async function restorePhysical(showDesktop){
+  if(privacyBusy||!mediaID)return;
+  if(showDesktop&&!window.confirm(t("Anyone near the host Mac can see the current desktop after you restore physical displays.")))return;
+  release();privacyBusy=true;updateControlState();
+  try{await api('session/restore-displays',{mediaID,showDesktop});message(t("Physical displays restored. Remote control can continue."));}
+  catch(error){message(error.message);}
+  finally{privacyBusy=false;updateControlState();}
+}
+$('restore-physical').addEventListener('click',()=>restorePhysical(false));
+$('show-physical').addEventListener('click',()=>restorePhysical(true));
 function updateVirtualSummary(){
   const width=Number($('virtual-width').value),height=Number($('virtual-height').value),scale=$('virtual-hidpi').checked?2:1;
   $('virtual-summary').textContent=t("Desktop {0} × {1}, output {2} × {3} pixels.", width/scale, height/scale, width, height);
@@ -119,7 +147,91 @@ function updateVirtualSummary(){
 function setDisplays(value,selected){
   displays=value;$('display').replaceChildren(...displays.map(display=>new Option(`${t(display.name)} · ${display.width}×${display.height}`,String(display.id))));
   if(selected!==undefined&&displays.some(display=>String(display.id)===String(selected)))$('display').value=String(selected);
+  if(activePanel==='display-panel')renderDisplayCards();
   updateVirtualControls();renderQuality();
+}
+function setVirtualSettingsOpen(open){
+  $('virtual-controls').hidden=!open;
+  $('virtual-options-toggle').setAttribute('aria-expanded',String(open));
+  if(open)$('virtual-controls').scrollIntoView({block:'nearest'});
+}
+$('virtual-options-toggle').addEventListener('click',()=>setVirtualSettingsOpen($('virtual-controls').hidden));
+function renderDisplayCards(){
+  displayCards.clear();nextPreview=0;
+  const cards=displays.map(display=>{
+    const button=document.createElement('button'),thumbnail=document.createElement('span');
+    const image=document.createElement('img'),placeholder=document.createElement('span');
+    const name=document.createElement('span'),detail=document.createElement('span');
+    button.className='display-card';button.type='button';button.dataset.displayId=String(display.id);
+    thumbnail.className='display-thumbnail';image.alt='';image.hidden=true;
+    placeholder.textContent=t("Preview unavailable");thumbnail.append(placeholder,image);
+    name.className='display-card-name';name.textContent=t(display.name);
+    detail.className='display-card-detail';
+    const size=`${display.width} × ${display.height}`;
+    detail.textContent=display.isVirtual?t("Virtual display · {0}",size):t("Physical display · {0}",size);
+    button.append(thumbnail,name,detail);
+    button.addEventListener('click',()=>{
+      if(String(display.id)===$('display').value)closePanels();
+      else void changeDisplay(display.id,true);
+    });
+    displayCards.set(display.id,{button,image});
+    return button;
+  });
+  $('display-grid').replaceChildren(...cards);
+  updateDisplayCards();
+}
+function updateDisplayCards(){
+  for(const [id,{button}] of displayCards){
+    const selected=String(id)===$('display').value;
+    button.setAttribute('aria-pressed',String(selected));
+    button.disabled=displayChanging||virtualBusy||!connected||!mediaID||
+      (!selected&&($('display').disabled||sessionInfo?.recovering||sessionInfo?.requiresAccountVerification));
+  }
+}
+function clearPreview(image){image.hidden=true;image.removeAttribute('src');}
+function stopDisplayPreviews(){
+  if(previewTimer===null)return;
+  clearInterval(previewTimer);previewTimer=null;++previewGeneration;
+  previewCanvas.width=0;previewCanvas.height=0;
+  for(const {image} of displayCards.values())clearPreview(image);
+}
+function syncDisplayPreviews(){
+  updateDisplayCards();
+  const visible=activePanel==='display-panel'&&!document.hidden&&connected&&mediaID&&!displayChanging&&!virtualBusy&&
+    !sessionInfo?.recovering&&!sessionInfo?.requiresAccountVerification&&['local','blackout'].includes(sessionInfo?.state);
+  if(!visible){stopDisplayPreviews();return;}
+  if(previewTimer!==null)return;
+  previewTimer=setInterval(refreshDisplayPreviews,1000);void refreshDisplayPreviews();
+}
+async function refreshDisplayPreviews(){
+  if(document.hidden||activePanel!=='display-panel')return;
+  const selectedID=Number($('display').value),selected=displayCards.get(selectedID),video=$('video');
+  if(selected&&video.readyState>=2&&video.videoWidth>0&&video.videoHeight>0){
+    const scale=Math.min(1,320/Math.max(video.videoWidth,video.videoHeight));
+    previewCanvas.width=Math.max(1,Math.round(video.videoWidth*scale));previewCanvas.height=Math.max(1,Math.round(video.videoHeight*scale));
+    try{
+      previewCanvas.getContext('2d').drawImage(video,0,0,previewCanvas.width,previewCanvas.height);
+      selected.image.src=previewCanvas.toDataURL('image/jpeg',0.5);selected.image.hidden=false;
+    }catch{clearPreview(selected.image);}
+  }
+  const others=[...displayCards].filter(([id])=>id!==selectedID);
+  const canPreviewOthers=()=>!sessionInfo?.recovering&&streamInfo?.state!=='limited'&&
+    (sessionInfo?.state==='local'&&!sessionInfo.displaySleepRequested||sessionInfo?.state==='blackout'&&sessionInfo.companionBlackout);
+  if(!canPreviewOthers()){
+    for(const [,{image}] of others)clearPreview(image);
+    return;
+  }
+  if(!others.length||previewInFlight)return;
+  const [id,card]=others[nextPreview++%others.length],generation=previewGeneration;
+  previewInFlight=true;
+  try{
+    const {jpeg}=await api('display-preview',{mediaID,displayID:id});
+    if(document.hidden||generation!==previewGeneration||displayCards.get(id)!==card||!canPreviewOthers())return;
+    if(typeof jpeg==='string'&&jpeg.length<=32768&&/^[A-Za-z0-9+/]+={0,2}$/.test(jpeg)){
+      card.image.src=`data:image/jpeg;base64,${jpeg}`;card.image.hidden=false;
+    }else clearPreview(card.image);
+  }catch{if(generation===previewGeneration)clearPreview(card.image);}
+  finally{previewInFlight=false;}
 }
 $('virtual-preset').addEventListener('change',()=>{if($('virtual-preset').value!=='custom'){const [width,height]=$('virtual-preset').value.split(',');$('virtual-width').value=width;$('virtual-height').value=height;}updateVirtualSummary();});
 for(const id of ['virtual-width','virtual-height'])$(id).addEventListener('input',()=>{$('virtual-preset').value='custom';updateVirtualSummary();});
@@ -130,16 +242,17 @@ async function changeVirtualDisplay(remove=false){
   if(!remove){
     if(!Core.validVirtualDisplay(configuration)){message(t("Enter valid even dimensions with at most 3840×2160 total pixels. HiDPI requires at least 1280×960 landscape or 960×1280 portrait pixels."));return;}
   }
-  release();virtualBusy=true;updateVirtualControls();$('display').disabled=true;$('quality').disabled=true;
+  release();virtualBusy=true;updateControlState();
   const epoch=connectionEpoch;
   try{
     const result=await api(remove?'virtual-display/remove':'virtual-display',{mediaID,...(!remove?{configuration}:{})});
     if(epoch!==connectionEpoch)return;
     setDisplays(result.displays,result.displayID);captureInfo={};previousStats=null;renderQuality();layoutVideo();centerView();
+    setVirtualSettingsOpen(false);
     $('virtual-status').textContent=remove?t("Virtual display closed."):t("Virtual display connected. It closes when this session ends.");
     message(remove?t("Returned to another display."):t("Switched to the virtual display. Move windows into it from another Mac display."));
   }catch(error){if(epoch===connectionEpoch)message(error.message);}
-  finally{virtualBusy=false;updateVirtualControls();$('display').disabled=false;$('quality').disabled=false;}
+  finally{virtualBusy=false;updateControlState();}
 }
 $('create-virtual').addEventListener('click',()=>changeVirtualDisplay());$('remove-virtual').addEventListener('click',()=>changeVirtualDisplay(true));
 async function api(path,body,method=body===undefined?'GET':'POST'){
@@ -255,6 +368,7 @@ new ResizeObserver(scheduleMouseLayout).observe($('workspace'));
 function closePanels(focus=true,dismissMouse=false){
   if(dismissMouse&&activePanel==='mouse-panel')mousePanelChoice='closed';
   $('lock-text').value='';
+  setVirtualSettingsOpen(false);
   document.querySelectorAll('.panel').forEach(panel=>panel.hidden=true);
   document.querySelectorAll('[data-panel]').forEach(button=>button.setAttribute('aria-expanded','false'));
   activePanel=null;$('desktop').classList.remove('keyboard-open','mouse-docked','keyboard-docked');updateControlState();if(focus)$('screen').focus({preventScroll:true});scheduleMouseLayout();
@@ -262,7 +376,9 @@ function closePanels(focus=true,dismissMouse=false){
 function openPanel(id){
   const closing=activePanel===id;release();closePanels(false,closing);if(closing){$('screen').focus({preventScroll:true});return;}
   if(id==='mouse-panel')mousePanelChoice='open';
-  activePanel=id;$(id).hidden=false;$('desktop').classList.toggle('keyboard-open',id==='keyboard-panel');if(id==='keyboard-panel')$('desktop').style.setProperty('--keyboard-space',`${$('keyboard-panel').offsetHeight+20}px`);document.querySelectorAll(`[data-panel="${id}"]`).forEach(button=>button.setAttribute('aria-expanded','true'));updateControlState();updateMouseLayout();updateKeyboardLayout();
+  activePanel=id;$(id).hidden=false;
+  if(id==='display-panel'){renderDisplayCards();$(id).querySelector('[data-close-panel]').focus({preventScroll:true});}
+  $('desktop').classList.toggle('keyboard-open',id==='keyboard-panel');if(id==='keyboard-panel')$('desktop').style.setProperty('--keyboard-space',`${$('keyboard-panel').offsetHeight+20}px`);document.querySelectorAll(`[data-panel="${id}"]`).forEach(button=>button.setAttribute('aria-expanded','true'));updateControlState();updateMouseLayout();updateKeyboardLayout();
 }
 document.querySelectorAll('[data-panel]').forEach(button=>button.addEventListener('click',()=>openPanel(button.dataset.panel)));
 document.querySelectorAll('[data-close-panel]').forEach(button=>button.addEventListener('click',()=>{release();closePanels(true,true);}));
@@ -300,10 +416,12 @@ async function startPeer(){
     const selected=$('display').value,available=await api('displays');if(epoch!==connectionEpoch)return;
     if(!available.length)throw new Error(t("The host Mac has no display available for capture."));
     setDisplays(available,available.some(display=>String(display.id)===selected)?selected:available[0].id);
-    const current=new RTCPeerConnection({iceServers:[],bundlePolicy:'max-bundle',encodedInsertableStreams:!disableEncodedTransform&&typeof RTCRtpReceiver.prototype?.createEncodedStreams==='function'});peer=current;
+    if(available.length===1&&available[0].isVirtual)$('overlay-detail').textContent=t("Preparing the virtual display for remote video…");
+    const canTransformFrames=!disableEncodedTransform&&typeof $('video').requestVideoFrameCallback==='function'&&typeof Worker==='function';
+    const current=new RTCPeerConnection({iceServers:[],bundlePolicy:'max-bundle',encodedInsertableStreams:canTransformFrames&&typeof RTCRtpReceiver.prototype?.createEncodedStreams==='function'});peer=current;
     const transceiver=current.addTransceiver('video',{direction:'recvonly'});
     try{
-      if(!disableEncodedTransform&&typeof Worker==='function'&&(typeof RTCRtpScriptTransform==='function'||typeof transceiver.receiver?.createEncodedStreams==='function')){
+      if(canTransformFrames&&(typeof RTCRtpScriptTransform==='function'||typeof transceiver.receiver?.createEncodedStreams==='function')){
         identityWorker=new Worker('/frame-identity-worker.js');const worker=identityWorker;
         worker.onmessage=event=>{if(epoch!==connectionEpoch)return;if(event.data.type==='frame'&&$('lossless-text').checked)losslessReceiver.receive(event.data).catch(()=>{});if(event.data.type==='unavailable'){encodedMetadataSupported=false;disableEncodedTransform=true;losslessReceiver.reset();scheduleReconnect(t("Lossless enhancement unavailable in this browser"));}};
         worker.onerror=()=>{if(epoch!==connectionEpoch)return;encodedMetadataSupported=false;disableEncodedTransform=true;losslessReceiver.reset();scheduleReconnect(t("Lossless enhancement unavailable in this browser"));};
@@ -312,12 +430,18 @@ async function startPeer(){
         worker.postMessage({type:'enabled',enabled:$('lossless-text').checked});encodedMetadataSupported=true;
       }
     }catch{identityWorker?.terminate();identityWorker=null;encodedMetadataSupported=false;}
+    $('lossless-text').disabled=!encodedMetadataSupported;
+    if(!encodedMetadataSupported)$('lossless-status').textContent=t("Lossless enhancement unavailable in this browser");
     const availableCodecs=RTCRtpReceiver.getCapabilities('video')?.codecs||[];
     let hevcCodecs=[];
-    if(!forceH264&&!$('lossless-text').checked&&availableCodecs.some(codec=>codec.mimeType.toLowerCase()==='video/h265')){
+    hevcVerifiedLocally=false;
+    if(!forceH264&&availableCodecs.some(codec=>codec.mimeType.toLowerCase()==='video/h265')){
       try{
         const verification=await navigator.mediaCapabilities?.decodingInfo({type:'webrtc',video:{contentType:'video/H265;profile-id=1;tier-flag=0;level-id=156;tx-mode=SRST',width:3840,height:2160,bitrate:24000000,framerate:30}});
-        hevcCodecs=Core.verifiedHEVCCodecs(availableCodecs,verification);hevcVerifiedLocally=hevcCodecs.length>0;
+        if(epoch!==connectionEpoch)return;
+        const verified=Core.verifiedHEVCCodecs(availableCodecs,verification);
+        hevcVerifiedLocally=verified.length>0;
+        if(!$('lossless-text').checked||!encodedMetadataSupported)hevcCodecs=verified;
       }catch{}
     }
     if(epoch!==connectionEpoch)return;
@@ -352,7 +476,7 @@ async function startPeer(){
           if(JSON.stringify(result.displays)!==JSON.stringify(displays)||String(selected)!==$('display').value)setDisplays(result.displays,selected);
         }
         updateControlState();renderSessionOverlay();
-        if(result.mediaID!==mediaID)throw new Error(result.message||t("Remote session ended"));
+        if(result.mediaID!==mediaID)throw new Error(t(result.message||"Remote session ended"));
         for(const candidate of result.candidates.slice(candidateOffset))await current.addIceCandidate(candidate);
         if(hevcAttempted&&result.videoCodec==='H264'){hevcAttempted=false;forceH264=true;}
         candidateOffset=result.candidates.length;captureInfo=result.capture||{};streamInfo=result.stream||null;streamDiagnostics=result.streamMetrics||{};videoCodec=result.videoCodec||'H264';renderQuality();
@@ -413,8 +537,6 @@ function acceptBrowserLogin(result){
   token=result.token;rememberedBrowser=result.remembered===true;renderBrowserTrust();
 }
 async function enterDesktop(){
-  const available=await api('displays');if(!available.length)throw new Error(t("The host Mac has no display available for capture."));
-  setDisplays(available);
   const capabilities=await api('display-capabilities');virtualSupported=capabilities.virtualDisplay===true;blackoutSupported=capabilities.physicalBlackout===true;
   $('virtual-status').textContent=virtualSupported?t("An independent remote display can be created."):t("This system does not support virtual displays.");updateVirtualControls();
   if($('desktop').hidden)mousePanelChoice='auto';
@@ -459,13 +581,20 @@ async function forgetThisBrowser(){
 $('forget-device').addEventListener('click',forgetThisBrowser);
 $('remember-device').addEventListener('change',()=>{if(rememberedBrowser&&!$('remember-device').checked)void forgetThisBrowser();});
 $('disconnect').addEventListener('click',()=>logout());$('reconnect').addEventListener('click',()=>{retryCount=0;startPeer();});
-let displayChanging=false;
-async function changeDisplay(){
-  if(displayChanging||virtualBusy||!mediaID)return;displayChanging=true;release();$('display').disabled=true;$('quality').disabled=true;
-  try{await api('display',{mediaID,displayID:Number($('display').value),quality:$('quality').value});captureInfo={};renderQuality();layoutVideo();message(t("Quality updated. Live dimensions appear when video arrives."));}
-  catch(error){message(error.message);}finally{displayChanging=false;$('display').disabled=false;$('quality').disabled=false;}
+async function changeDisplay(displayID=Number($('display').value),fromOverview=false){
+  if(displayChanging||virtualBusy||$('display').disabled||!mediaID)return;
+  release();displayChanging=true;updateControlState();
+  const epoch=connectionEpoch;
+  try{
+    await api('display',{mediaID,displayID,quality:$('quality').value});
+    if(epoch!==connectionEpoch)return;
+    $('display').value=String(displayID);captureInfo={};renderQuality();layoutVideo();
+    if(fromOverview){centerView();if(activePanel==='display-panel')closePanels();}
+    else message(t("Quality updated. Live dimensions appear when video arrives."));
+  }catch(error){if(epoch===connectionEpoch)message(error.message);}
+  finally{displayChanging=false;updateControlState();}
 }
-$('display').addEventListener('change',changeDisplay);$('quality').addEventListener('change',changeDisplay);
+$('display').addEventListener('change',()=>changeDisplay());$('quality').addEventListener('change',()=>changeDisplay());
 $('release').addEventListener('click',()=>{release();message(t("All keys released."));});$('emergency-release').addEventListener('click',()=>{release();$('screen').blur();message(t("Input released."));});
 $('control-state').addEventListener('click',()=>{if(dragging){release();return;}if(sessionInfo?.requiresAccountVerification){openPanel('privacy-panel');return;}if(!inputAllowed)message(t("Check the session status and Accessibility access on the host Mac."));else{$('screen').focus({preventScroll:true});}});
 $('view-only').addEventListener('click',()=>{release();viewOnly=!viewOnly;$('view-only').setAttribute('aria-pressed',String(viewOnly));renderTouchControls();updateControlState();});
@@ -633,9 +762,9 @@ $('screen').addEventListener('keydown',event=>{
 $('screen').addEventListener('keyup',event=>{if(!heldKeys.has(event.code))return;event.preventDefault();heldKeys.delete(event.code);send({type:'key',action:'up',code:event.code,modifiers:modifiers(event)});});
 $('screen').addEventListener('blur',release);
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&activePanel){event.preventDefault();release();closePanels(true,true);}});
-window.addEventListener('blur',release);document.addEventListener('visibilitychange',()=>{if(document.hidden)release();else scheduleMouseLayout();});window.addEventListener('pagehide',()=>{release();if(peer)peer.close();});
+window.addEventListener('blur',release);document.addEventListener('visibilitychange',()=>{if(document.hidden)release();else scheduleMouseLayout();syncDisplayPreviews();});window.addEventListener('pagehide',()=>{release();stopDisplayPreviews();if(peer)peer.close();});
 VelaI18n.ready.then(async()=>{VelaI18n.apply();updateControlState();await refreshAuthentication();await resumeRememberedBrowser();});
-window.addEventListener('vela-language-change',()=>{updateControlState();updateVirtualSummary();updateFullscreen();renderQuality();renderTouchControls();if(connected)renderSessionOverlay();});
+window.addEventListener('vela-language-change',()=>{if(activePanel==='display-panel')renderDisplayCards();updateControlState();updateVirtualSummary();updateFullscreen();renderQuality();renderTouchControls();if(connected)renderSessionOverlay();});
 
 // Decorative login scene. Its clock stops while the page or login is hidden.
 (()=>{

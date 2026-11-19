@@ -41,6 +41,7 @@ public final class RemoteHostRuntime {
         }
         let service = self.service
         polling = Task {
+            await service.recoverDisplayLayoutAfterLaunch()
             while !Task.isCancelled {
                 await service.tick()
                 do { try await Task.sleep(for: .seconds(1)) }
@@ -59,7 +60,7 @@ public final class RemoteHostRuntime {
             // Drain an in-flight start/tick before closing the listener so it
             // cannot finish starting a new listener after application shutdown.
             await pending.value
-            await service.shutdown()
+            await service.shutdown(restoreCompanion: true)
             if lockFD >= 0 {
                 service.publish()
                 close(lockFD); lockFD = -1

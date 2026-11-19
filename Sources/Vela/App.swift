@@ -1,5 +1,6 @@
 import VelaLocalization
 import AppKit
+import RemoteRTC
 import RemoteServer
 
 @MainActor
@@ -41,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private let injectedRemoteSettings: RemoteSettingsController?
     private var remoteRuntime: RemoteHostRuntime?
+    private var companionBlackoutTask: Task<Void, Never>?
     private var terminationSignals: [DispatchSourceSignal] = []
 
     init(defaults: UserDefaults = .standard, remoteSettings: RemoteSettingsController? = nil) {
@@ -94,6 +96,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 try runtime.start()
                 remoteRuntime = runtime
+                pet.onBlackout = { [weak self] in self?.beginCompanionBlackout() }
+                runtime.service.onCompanionBlackoutChange = { [weak self] active in
+                    self?.pet.setBlackout(active: active, starting: self?.companionBlackoutTask != nil)
+                }
+                pet.setBlackout(active: false)
                 remoteSettings = RemoteSettingsController(files: runtime.service.files, service: runtime.service)
                 for number in [SIGTERM, SIGINT] {
                     signal(number, SIG_IGN)
@@ -636,6 +643,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettings() { settings.show() }
 
+    private func beginCompanionBlackout() {
+        guard let service = remoteRuntime?.service, !terminationPending, companionBlackoutTask == nil,
+              !service.companionBlackoutActive else { return }
+        if PhysicalDisplayBlackout.isAvailable && VirtualDisplay.isAvailable && !PhysicalDisplayBlackout.canObserveLocalInput {
+            if !CGRequestListenEventAccess() {
+                SettingsPrivacy.open("Privacy_ListenEvent")
+                return
+            }
+        }
+        pet.setBlackout(active: false, starting: true)
+        companionBlackoutTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.companionBlackoutTask = nil
+                self.pet.setBlackout(active: service.companionBlackoutActive)
+            }
+            do { try await service.beginCompanionBlackout() }
+            catch {
+                if !self.terminationPending && !service.companionBlackoutActive {
+                    self.showError(L(error.localizedDescription))
+                }
+            }
+        }
+    }
+
     @objc private func checkForUpdates() {
         showSettings()
         settings.navigationController.select(.general)
@@ -705,7 +737,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = duty.select(.off, mode: .display, observation: watchObservation())
         Task { [weak self, weak sender] in
             guard let self else { sender?.reply(toApplicationShouldTerminate: true); return }
-            let remoteShutdown = Task { await self.remoteRuntime?.stop() }
+            let remoteShutdown = Task {
+                self.companionBlackoutTask?.cancel()
+                await self.companionBlackoutTask?.value
+                await self.remoteRuntime?.stop()
+            }
             let deadline = ProcessInfo.processInfo.systemUptime + 7
             while self.lidOperationInFlight && ProcessInfo.processInfo.systemUptime < deadline {
                 try? await Task.sleep(for: .milliseconds(100))

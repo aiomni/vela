@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS("26.0")],
     products: [
         .executable(name: "LockLab", targets: ["LockLab"]),
+        .executable(name: "VelaTouchLab", targets: ["VelaTouchLab"]),
         .executable(name: "Vela", targets: ["Vela"]),
         .executable(name: "VelaConnect", targets: ["VelaConnect"])
     ],
@@ -15,6 +16,9 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-nio-ssl.git", exact: "2.37.5")
     ],
     targets: [
+        .target(name: "TouchLabCore"),
+        .executableTarget(name: "VelaTouchLab", dependencies: ["TouchLabCore", "VelaLocalization"]),
+        .testTarget(name: "TouchLabCoreTests", dependencies: ["TouchLabCore"]),
         .executableTarget(name: "LockLab", dependencies: ["VelaLocalization"]),
         .target(name: "VelaLocalization", resources: [.copy("Resources/zh-Hans.json")]),
         .target(name: "LidServiceShared"),

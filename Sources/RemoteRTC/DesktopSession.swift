@@ -23,6 +23,7 @@ public struct DesktopSessionSnapshot: Codable, Equatable, Sendable {
 public enum DesktopSession {
     private static let framework = dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/A/login", RTLD_LAZY | RTLD_LOCAL)
     public static var canDetach: Bool { framework.flatMap { dlsym($0, "SACSwitchToLoginWindow") } != nil }
+    public static var canLock: Bool { framework.flatMap { dlsym($0, "SACLockScreenImmediate") } != nil }
     public static func detachFromConsole(allowLocked: Bool = false) throws {
         let snapshot = DesktopSessionSnapshot.current()
         guard snapshot.available, snapshot.loginDone, snapshot.onConsole, allowLocked || !snapshot.locked else {
@@ -41,6 +42,22 @@ public enum DesktopSession {
         }
         let result = unsafeBitCast(symbol, to: (@convention(c) () -> Int32).self)()
         guard result == 0 else { throw RemoteError.message("The system could not lock the screen (\(result)).") }
+    }
+
+    public static func ensureLocked() async throws {
+        let initial = DesktopSessionSnapshot.current()
+        guard initial.available, initial.loginDone, initial.onConsole else {
+            throw RemoteError.message("The current user session is unavailable.")
+        }
+        if initial.locked { return }
+        try lockScreen()
+        for _ in 0..<20 {
+            try await Task.sleep(for: .milliseconds(100))
+            let current = DesktopSessionSnapshot.current()
+            guard current.available, current.loginDone, current.onConsole else { break }
+            if current.locked { return }
+        }
+        throw RemoteError.message("macOS did not confirm the lock. Physical displays remain off.")
     }
     public static func sleepPhysicalDisplays() async throws {
         // This is a one-time display sleep request, not a system sleep or a

@@ -10,7 +10,7 @@ public final class VirtualDisplay {
     public var id: UInt32 {
         var ids = [CGDirectDisplayID](repeating: 0, count: 32)
         var count: UInt32 = 0
-        if CGGetActiveDisplayList(32, &ids, &count) == .success,
+        if CGGetOnlineDisplayList(32, &ids, &count) == .success,
            let current = ids.prefix(Int(count)).first(where: {
                CGDisplayVendorNumber($0) == 0x4157 && CGDisplayModelNumber($0) == 1 && CGDisplaySerialNumber($0) == serialNumber
            }) { return current }
@@ -33,9 +33,9 @@ public final class VirtualDisplay {
 
     /// WindowServer may initially select a generated 1x mode even for a HiDPI
     /// descriptor. Select and verify the exact mode before advertising readiness.
-    public func prepare() async throws {
+    public func prepare(mayConfigure: () -> Bool = { true }) async throws {
         for _ in 0..<40 {
-            guard handle != nil else { throw RemoteError.message("Virtual display creation canceled.") }
+            guard handle != nil, mayConfigure() else { throw RemoteError.message("Virtual display creation canceled.") }
             let options = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
             let modes = CGDisplayCopyAllDisplayModes(id, options) as? [CGDisplayMode] ?? []
             if let mode = modes.first(where: {

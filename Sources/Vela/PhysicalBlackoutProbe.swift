@@ -61,7 +61,7 @@ func runPhysicalBlackoutProbe(directory: URL) async -> Int32 {
             }
         }
         for _ in 0..<50 {
-            if let reason = blackout.heartbeat() { result["restoredBy"] = reason; break }
+            if let reason = await blackout.heartbeat() { result["restoredBy"] = reason; break }
             try await Task.sleep(for: .milliseconds(100))
         }
         result["restoreSucceeded"] = await blackout.restore()

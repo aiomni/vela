@@ -22,6 +22,12 @@ window.runPrivateSessionChecks=async()=>{
  $('restore-physical').click();await wait(1700);
  assert(__restoreRequests===1&&$('restore-physical').hidden,'remote restore exits blackout');
  assert(!$('create-virtual').disabled&&!$('display').disabled,'restore unlocks display controls');
+ __sessionFixture={state:'blackout',companionBlackout:true,displaySleepRequested:true,recovering:true,
+  requiresAccountVerification:false,canEnterPrivacy:false,canManageVirtualDisplay:false,localWakePermission:true};await wait(1700);
+ assert($('display').disabled&&$('screen-overlay').hidden===false,'companion blackout masks video during display replacement');
+ __sessionFixture.recovering=false;await wait(1700);
+ assert(!$('display').disabled&&!$('quality').disabled&&$('create-virtual').disabled,'companion blackout allows display selection without editing the virtual layout');
+ assert($('restore-physical').hidden&&$('privacy-status').textContent.includes('host Mac'),'companion blackout uses local input for restoration');
  __sessionFixture={state:'locked',recovering:true,requiresAccountVerification:false,lockScreenControl:false,canEnterPrivacy:false,canManageVirtualDisplay:false,localWakePermission:true};await wait(1700);
  assert($('connection').textContent==='Connected','ordinary lock preserves connection');
  assert(__requests.filter(path=>path==='offer').length===offers,'ordinary lock does not loop reconnect');
@@ -42,5 +48,24 @@ window.runPrivateSessionChecks=async()=>{
  assert(!$('screen-overlay').hidden&&$('left-click').disabled,'a different console user remains protected');
  __sessionFixture={state:'local',recovering:false,requiresAccountVerification:false,canEnterPrivacy:true,canManageVirtualDisplay:true,localWakePermission:true};await wait(1700);
  assert($('screen-overlay').hidden&&!$('left-click').disabled&&$('lock-text').hidden,'unlock restores normal desktop controls');
+ const privateSession={state:'locked',automaticPrivacy:true,displaySleepRequested:true,lockScreenControl:true,
+  recovering:false,requiresAccountVerification:false,canEnterPrivacy:false,canManageVirtualDisplay:false,localWakePermission:true};
+ __sessionFixture={...privateSession};await wait(1700);
+ assert($('control-state').textContent.includes('Private lock screen'),'automatic privacy identifies the real virtual lock screen');
+ assert(!$('restore-physical').hidden&&$('show-physical').hidden&&$('display').disabled,'locked privacy offers safe restore and blocks display changes');
+ assert(!$('left-click').disabled&&!$('lock-text').hidden,'locked privacy accepts remote input and keeps password helper masked');
+ __sessionFixture={...privateSession,state:'blackout',lockScreenControl:false};await wait(1700);
+ assert(!$('restore-physical').hidden&&!$('show-physical').hidden,'unlocked privacy offers both restore actions');
+ const previousConfirm=window.confirm;
+ try{
+  window.confirm=()=>false;$('show-physical').click();await wait(50);
+  assert(__restoreRequests===1,'declining visibility confirmation leaves privacy active');
+  $('restore-physical').click();await wait(1700);
+  assert(__restorePayloads.at(-1).showDesktop===false&&$('restore-physical').hidden&&!$('lock-text').hidden,'default restore leaves the Mac locked');
+  __sessionFixture={...privateSession,state:'blackout',lockScreenControl:false};await wait(1700);
+  window.confirm=()=>true;$('show-physical').click();await wait(1700);
+  assert(__restorePayloads.at(-1).showDesktop===true&&$('restore-physical').hidden,'explicit confirmed restore can show the desktop');
+ }finally{window.confirm=previousConfirm;}
+ assert(__requests.filter(path=>path==='offer').length===offers,'private lock and restore stay on the same media connection');
  return {passed:results.length,results};
 };

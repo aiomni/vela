@@ -1,0 +1,29 @@
+{
+  "scope": "Security diagnostics for the exact entitled matched-test artifact; raw messages and identities omitted.",
+  "artifactID": "5b17c004-381b-40e6-ba10-0b023758408e",
+  "logQueryExitCode": 0,
+  "entries": [
+    {
+      "timestamp": "2026-11-06 17:01:51.570539+0800",
+      "process": "amfid",
+      "noMatchingProfileFound": false,
+      "signatureNotValid": false,
+      "errorDomains": [],
+      "errorCodes": [],
+      "entitlementKeys": []
+    },
+    {
+      "timestamp": "2026-11-06 17:01:51.573382+0800",
+      "process": "amfid",
+      "noMatchingProfileFound": true,
+      "signatureNotValid": true,
+      "errorDomains": [
+        "AppleMobileFileIntegrityError"
+      ],
+      "errorCodes": [
+        "-413"
+      ],
+      "entitlementKeys": []
+    }
+  ]
+}

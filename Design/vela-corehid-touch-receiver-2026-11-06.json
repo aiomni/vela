@@ -1,0 +1,32 @@
+{
+  "backingScaleFactor" : 2,
+  "deviceActivated" : false,
+  "deviceCreated" : false,
+  "directTouchBegan" : 0,
+  "directTouchCallbacks" : 0,
+  "directTouchCancelled" : 0,
+  "directTouchEnded" : 0,
+  "directTouchMoved" : 0,
+  "exitCode" : 0,
+  "magnificationActions" : 0,
+  "mode" : "--receiver-only",
+  "nativeTouchAndGesturesVerified" : false,
+  "osVersion" : "Version 27.0.1 (Build 26A434)",
+  "receiverConfigured" : true,
+  "receiverUsesDirectGestureRecognizer" : true,
+  "reportsSubmitted" : 0,
+  "samples" : [
+
+  ],
+  "schemaVersion" : 1,
+  "scope" : "Isolated CoreHID\/AppKit prototype. No remote host, TCC requests, private APIs, signing, driver installation or display\/power changes.",
+  "scrollOriginChanged" : false,
+  "selectedDisplayFramePoints" : {
+    "height" : 1329,
+    "width" : 2056,
+    "x" : 0,
+    "y" : 0
+  },
+  "selectedDisplayID" : 1,
+  "standardTouchScrollingEnabled" : true
+}

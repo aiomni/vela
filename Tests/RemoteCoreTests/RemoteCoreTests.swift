@@ -2,6 +2,20 @@ import XCTest
 @testable import RemoteCore
 
 final class RemoteCoreTests: XCTestCase {
+    func testPrivateConnectionSettingMigratesAndPersists() throws {
+        let encoder = JSONEncoder(), decoder = JSONDecoder()
+        var configuration = RemoteConfiguration()
+        XCTAssertEqual(configuration.privacyMode, .off)
+        configuration.privacyMode = .lockedOrAsleep
+        let saved = try encoder.encode(configuration)
+        XCTAssertEqual(try decoder.decode(RemoteConfiguration.self, from: saved).privacyMode, .lockedOrAsleep)
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: saved) as? [String: Any])
+        legacy.removeValue(forKey: "privacyMode")
+        XCTAssertEqual(try decoder.decode(RemoteConfiguration.self, from: JSONSerialization.data(withJSONObject: legacy)).privacyMode, .off)
+        legacy["privacyMode"] = "unsupported"
+        XCTAssertThrowsError(try decoder.decode(RemoteConfiguration.self, from: JSONSerialization.data(withJSONObject: legacy)))
+    }
+
     func testPasswordUnicodeRoundtripAndSalt() throws {
         let first = try PasswordVerifier(password: "\u{6D4B}\u{8BD5}-remote-password-long-password", iterations: 100_000)
         let second = try PasswordVerifier(password: "\u{6D4B}\u{8BD5}-remote-password-long-password", iterations: 100_000)

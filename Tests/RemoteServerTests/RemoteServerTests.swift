@@ -3,12 +3,37 @@ import Foundation
 import Darwin
 import Security
 @testable import RemoteCore
-import RemoteRTC
+@testable import RemoteRTC
 import WebRTC
 import CoreVideo
 @testable import RemoteServer
 
 final class RemoteServerTests: XCTestCase {
+    func testCompanionReplacementModesRespectVirtualDisplayLimits() throws {
+        let retina = PhysicalDisplaySnapshot.replacementMode(width: 1920, height: 1080, pixelWidth: 3840, pixelHeight: 2160)
+        XCTAssertEqual(retina, .init(width: 3840, height: 2160, hiDPI: true))
+        let fiveK = PhysicalDisplaySnapshot.replacementMode(width: 2560, height: 1440, pixelWidth: 5120, pixelHeight: 2880)
+        XCTAssertEqual(fiveK, .init(width: 2560, height: 1440, hiDPI: false))
+        let portrait = PhysicalDisplaySnapshot.replacementMode(width: 960, height: 1600, pixelWidth: 1920, pixelHeight: 3200)
+        XCTAssertEqual(portrait, .init(width: 1920, height: 3200, hiDPI: true))
+        let ultraWide = PhysicalDisplaySnapshot.replacementMode(width: 5120, height: 1440, pixelWidth: 5120, pixelHeight: 1440)
+        XCTAssertEqual(ultraWide, .init(width: 3840, height: 1080, hiDPI: false))
+        for mode in [retina, fiveK, portrait, ultraWide] { try mode.validate() }
+    }
+
+    func testBlackoutRecoveryReadsRecordsFromBeforeCompanionBlackout() throws {
+        let data = Data("""
+        {"owner":123,"virtualID":2,"displays":[
+          {"id":1,"vendor":1,"model":2,"serial":3,"x":0,"y":0,"width":1920,"height":1080,
+           "pixelWidth":1920,"pixelHeight":1080,"modeID":4,"mirror":0}
+        ]}
+        """.utf8)
+        let layout = try JSONDecoder().decode(BlackoutLayout.self, from: data)
+        XCTAssertEqual(layout.virtualID, 2)
+        XCTAssertNil(layout.replacements)
+        XCTAssertNil(layout.displays.first?.rotation)
+    }
+
     @MainActor
     func testAppOwnedRuntimeStopsListenerPreservesSettingsAndRevokesSessions() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vela-lifecycle-\(UUID())")
@@ -76,6 +101,15 @@ final class RemoteServerTests: XCTestCase {
                 host: "localhost:\(config.port)", origin: "https://localhost:\(config.port)", authorization: "Bearer \(token)", contentType: "application/json",
                 body: Data("{\"mediaID\":\"stale\",\"feedback\":{\"preference\":\"text\"}}".utf8), address: "127.0.0.1"))
             XCTAssertEqual(feedback.status, 409, "An authenticated session without matching active media cannot change streaming policy")
+            let previewBody = Data("{\"mediaID\":\"stale\",\"displayID\":1}".utf8)
+            let unauthenticatedPreview = await runtime.service.handle(RemoteRequest(method: "POST", path: "/api/display-preview",
+                host: "localhost:\(config.port)", origin: "https://localhost:\(config.port)", authorization: nil,
+                contentType: "application/json", body: previewBody, address: "127.0.0.1"))
+            XCTAssertEqual(unauthenticatedPreview.status, 401)
+            let stalePreview = await runtime.service.handle(RemoteRequest(method: "POST", path: "/api/display-preview",
+                host: "localhost:\(config.port)", origin: "https://localhost:\(config.port)", authorization: "Bearer \(token)",
+                contentType: "application/json", body: previewBody, address: "127.0.0.1"))
+            XCTAssertEqual(stalePreview.status, 409, "Display previews require the current controller and media session")
             await runtime.stop()
             await runtime.stop() // App termination callbacks may repeat.
             XCTAssertEqual(files.status()?.state, "stopped")
