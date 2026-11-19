@@ -12,7 +12,7 @@ final class PhysicalInputMonitor {
     var onPhysicalInput: (() -> Void)?
     private(set) var startFailure: StartFailure?
 
-    static func isPhysical(_ event: CGEvent) -> Bool {
+    nonisolated static func isPhysical(_ event: CGEvent) -> Bool {
         // Quartz-posted events carry their originating process ID. Hardware
         // keyboard and mouse events arrive from the HID system with PID 0.
         event.getIntegerValueField(.eventSourceUnixProcessID) == 0

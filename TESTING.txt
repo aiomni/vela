@@ -105,9 +105,20 @@ Intrusive live tests are not routine validation:
 - scripts/verify-lid-live.sh changes real pmset state and requests administrator
   approval. Preserve the initial setting and verify watchdog recovery afterward.
 - --physical-blackout-probe changes real physical/virtual displays. Its recovery
-  watchdog must be ready before disabling physical displays.
+  watchdog must be ready before disabling physical displays. Add --companion-blackout
+  to exercise the companion active-state recovery path with a 15-second restoration
+  timeout. Provide real local input after the physical outputs disconnect.
 - For companion blackout acceptance, use the signed app with Input Monitoring
   granted. Hover over the companion and choose Disconnect physical displays.
+  Verify the five-second translucent countdown on every screen. Keyboard and
+  mouse input must continue reaching applications without restarting or cancelling
+  the countdown. Escape cancels it and keeps physical displays connected.
+  Verify the background begins transparent and reaches solid black at five seconds.
+  Replacement virtual displays must appear after the digits finish. The black
+  cover must stay on each original screen through preparation without a desktop flash.
+  Verify local input cannot trigger restoration while preparing displays. After
+  physical displays disconnect, the active state must allow local input to restore
+  them immediately.
   On a Mac with an internal and an external display, verify both go dark and a
   temporary virtual display replaces each. With remote access enabled, verify
   the unlocked desktop remains controllable, each virtual display is selectable,

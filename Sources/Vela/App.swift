@@ -251,6 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.runWatchTick()
         }
         observe(NSWorkspace.shared.notificationCenter, NSWorkspace.willSleepNotification) { [weak self] in
+            self?.companionBlackoutTask?.cancel()
             self?.pet.setSleeping(true)
         }
         observe(NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification) { [weak self] in
@@ -655,13 +656,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pet.setBlackout(active: false, starting: true)
         companionBlackoutTask = Task { [weak self] in
             guard let self else { return }
+            let countdown = BlackoutCountdown()
             defer {
+                countdown.stop()
                 self.companionBlackoutTask = nil
                 self.pet.setBlackout(active: service.companionBlackoutActive)
             }
-            do { try await service.beginCompanionBlackout() }
-            catch {
-                if !self.terminationPending && !service.companionBlackoutActive {
+            do {
+                try countdown.start { [weak self] in self?.companionBlackoutTask?.cancel() }
+                try await countdown.waitForCompletion()
+                try Task.checkCancellation()
+                try await service.beginCompanionBlackout()
+            } catch is CancellationError {
+            } catch {
+                countdown.stop()
+                if !Task.isCancelled && !self.terminationPending && !service.companionBlackoutActive {
                     self.showError(L(error.localizedDescription))
                 }
             }

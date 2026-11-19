@@ -89,7 +89,9 @@ The unsigned check output is `.build/offline-bundle/Vela.app`. Set `VELA_OUTPUT_
 
 Vela starts with keep-awake off and the companion visible. Use the menu bar or hover over the companion to reveal keep-awake, Agent watch, mode, and Settings controls. The default global shortcut is **Control + Option + Command + K**.
 
-Hover over the companion and click **Disconnect physical displays** to replace each physical display with a temporary virtual display while the current desktop stays unlocked and awake. The first use requires **Input Monitoring**. Use the Mac’s keyboard, mouse, or trackpad to restore the original display layout. This works with remote access off. An authenticated remote controller can switch between the virtual displays while they are active.
+Hover over the companion and click **Disconnect physical displays** to start a five-second countdown on each screen. The background fades from transparent to black as the numbers count down. Press **Esc** to cancel. You can keep using the keyboard and mouse without resetting the countdown.
+
+When the countdown ends, Vela keeps the black cover in place while it prepares one temporary virtual display per physical display and disconnects the physical outputs. The desktop stays unlocked and awake. Once the physical outputs are disconnected, move the Mac’s mouse or trackpad, or press a key, to restore the original layout. This action requires **Input Monitoring** and works with remote access off. An authenticated remote controller can switch between the virtual displays while they are active.
 
 Manual and Agent keep-awake share the selected mode. Agent working detection uses a `caffeinate` child process or roughly 60 seconds of CPU activity; choose process-presence mode for low-CPU network waits. Detection is local to the current user, so remote or container processes are not visible.
 

@@ -928,5 +928,7 @@
   "Unable to identify the physical displays.": "无法识别物理显示器。",
   "Unable to arrange the replacement virtual displays.": "无法排列替代虚拟屏。",
   "Unable to keep the virtual desktop awake.": "无法让虚拟桌面保持唤醒。",
-  "Physical displays are off. Local input restores them.": "物理屏已断开。本机键鼠可恢复。"
+  "Physical displays are off. Local input restores them.": "物理屏已断开。本机键鼠可恢复。",
+  "Display blackout countdown": "黑屏倒计时",
+  "Esc to cancel": "按 Esc 取消"
 }

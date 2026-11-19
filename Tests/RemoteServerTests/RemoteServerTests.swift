@@ -9,6 +9,23 @@ import CoreVideo
 @testable import RemoteServer
 
 final class RemoteServerTests: XCTestCase {
+    func testBlackoutRestoresOnlyWhenActiveForPhysicalInput() {
+        let event = CGEvent(keyboardEventSource: CGEventSource(stateID: .privateState), virtualKey: 0, keyDown: true)!
+        event.setIntegerValueField(.eventSourceUnixProcessID, value: 0)
+        XCTAssertFalse(PhysicalDisplayWatchdog.isRestoreInput(event, isActive: false))
+        XCTAssertTrue(PhysicalDisplayWatchdog.isRestoreInput(event, isActive: true))
+        event.setIntegerValueField(.eventSourceUnixProcessID, value: 123)
+        XCTAssertFalse(PhysicalDisplayWatchdog.isRestoreInput(event, isActive: true))
+        event.setIntegerValueField(.eventSourceUnixProcessID, value: 0)
+        event.setIntegerValueField(.eventSourceUserData, value: 0x41575045545243)
+        XCTAssertFalse(PhysicalDisplayWatchdog.isRestoreInput(event, isActive: true))
+        let mouse = CGEvent(mouseEventSource: CGEventSource(stateID: .privateState), mouseType: .mouseMoved,
+                            mouseCursorPosition: .zero, mouseButton: .left)!
+        mouse.setIntegerValueField(.eventSourceUnixProcessID, value: 0)
+        XCTAssertFalse(PhysicalDisplayWatchdog.isRestoreInput(mouse, isActive: false))
+        XCTAssertTrue(PhysicalDisplayWatchdog.isRestoreInput(mouse, isActive: true))
+    }
+
     func testCompanionReplacementModesRespectVirtualDisplayLimits() throws {
         let retina = PhysicalDisplaySnapshot.replacementMode(width: 1920, height: 1080, pixelWidth: 3840, pixelHeight: 2160)
         XCTAssertEqual(retina, .init(width: 3840, height: 2160, hiDPI: true))

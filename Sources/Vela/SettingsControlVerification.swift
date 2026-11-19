@@ -99,4 +99,36 @@ func verifySettingsControls() {
     pet.setBlackout(active: false)
     precondition(pet.blackoutButton.isEnabled)
     print("PASS: companion blackout action, help, layout, and busy/active states")
+    for (elapsed, expected) in [(0.0, 5), (0.999, 5), (1.0, 4), (2.0, 3), (3.0, 2), (4.0, 1), (4.999, 1)] {
+        precondition(BlackoutCountdownFrame(elapsed: elapsed).number == expected)
+    }
+    precondition(BlackoutCountdownFrame(elapsed: 5).number == nil)
+    let event = CGEvent(keyboardEventSource: CGEventSource(stateID: .privateState), virtualKey: 53, keyDown: true)!
+    event.setIntegerValueField(.eventSourceUnixProcessID, value: 0)
+    precondition(BlackoutCountdown.isCancelInput(event))
+    event.setIntegerValueField(.keyboardEventKeycode, value: 0)
+    precondition(!BlackoutCountdown.isCancelInput(event))
+    event.setIntegerValueField(.keyboardEventKeycode, value: 53)
+    event.setIntegerValueField(.eventSourceUnixProcessID, value: 123)
+    precondition(!BlackoutCountdown.isCancelInput(event))
+    let countdown = BlackoutCountdownView(frame: NSRect(x: 0, y: 0, width: 960, height: 640))
+    countdown.elapsed = 2.3
+    let image = countdown.bitmapImageRepForCachingDisplay(in: countdown.bounds)!
+    countdown.cacheDisplay(in: countdown.bounds, to: image)
+    precondition(!countdown.isOpaque &&
+                 abs(image.colorAt(x: 0, y: 0)!.alphaComponent - BlackoutCountdownFrame(elapsed: 2.3).backgroundOpacity) < 0.02)
+    if let path = ProcessInfo.processInfo.environment["VELA_COUNTDOWN_PREVIEW"] {
+        try! image.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
+    }
+    for (elapsed, opacity) in [(0.0, 0.0), (2.5, 0.5), (5.0, 1.0), (6.0, 1.0)] {
+        countdown.elapsed = elapsed
+        countdown.cacheDisplay(in: countdown.bounds, to: image)
+        precondition(abs(image.colorAt(x: 0, y: 0)!.alphaComponent - opacity) < 0.02)
+        if elapsed >= 5 {
+            let center = image.colorAt(x: image.pixelsWide / 2, y: image.pixelsHigh / 2)!
+            precondition(center.redComponent < 0.01 && center.greenComponent < 0.01 && center.blueComponent < 0.01)
+            precondition(center.alphaComponent > 0.99)
+        }
+    }
+    print("PASS: five-second countdown, physical Escape cancellation, and transparent-to-black background")
 }

@@ -261,12 +261,22 @@ public struct BlackoutLayout: Codable, Sendable {
 /// password or video stream, and exits after restoring the displays.
 @MainActor
 public enum PhysicalDisplayWatchdog {
+    nonisolated static func isRestoreInput(_ event: CGEvent, isActive: Bool) -> Bool {
+        isActive && event.getIntegerValueField(.eventSourceUnixProcessID) == 0 &&
+            event.getIntegerValueField(.eventSourceUserData) != 0x41575045545243
+    }
+
     private final class Input {
         var tap: CFMachPort?
         var source: CFRunLoopSource?
         var requested = false
         var armed = false
         var committedPath: String?
+
+        var isActive: Bool {
+            guard let committedPath else { return armed }
+            return FileManager.default.fileExists(atPath: committedPath)
+        }
         func start() -> Bool {
             guard CGPreflightListenEventAccess() else { return false }
             let types: [CGEventType] = [.keyDown, .flagsChanged, .mouseMoved, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
@@ -277,9 +287,7 @@ public enum PhysicalDisplayWatchdog {
                 let input = Unmanaged<Input>.fromOpaque(context).takeUnretainedValue()
                 if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                     input.requested = true // Restore rather than losing the escape route.
-                } else if event.getIntegerValueField(.eventSourceUnixProcessID) == 0 &&
-                            event.getIntegerValueField(.eventSourceUserData) != 0x41575045545243 &&
-                            (input.armed || input.committedPath.map { FileManager.default.fileExists(atPath: $0) } == true) {
+                } else if PhysicalDisplayWatchdog.isRestoreInput(event, isActive: input.isActive) {
                     input.requested = true
                 }
                 return Unmanaged.passUnretained(event)
@@ -446,7 +454,8 @@ public final class PhysicalDisplayBlackout {
             guard child.isRunning, FileManager.default.fileExists(atPath: directory.appendingPathComponent("ready").path) else {
                 throw RemoteError.message("Display recovery protection is not ready. No physical displays were turned off.")
             }
-            guard process === child, mayCommit() else { throw RemoteError.message("Connection canceled.") }
+            try Task.checkCancellation()
+            guard process === child, child.isRunning, mayCommit() else { throw RemoteError.message("Connection canceled.") }
             // Persist recovery intent before the atomic WindowServer commit.
             try Data().write(to: directory.appendingPathComponent("active"), options: .atomic)
             try saved.disablePhysicalDisplays()
